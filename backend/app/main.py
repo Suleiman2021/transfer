@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
@@ -363,6 +363,11 @@ def root():
             "Double-entry ledger posting is enabled for completed transfers",
         ],
     }
+
+
+@app.head("/", include_in_schema=False)
+def root_head():
+    return Response(status_code=200)
 
 
 @app.api_route("/healthz", methods=["GET", "HEAD"])
