@@ -24,28 +24,30 @@ class DashboardSectionEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: AppTheme.tileRadius,
       onTap: onTap,
       child: Ink(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: AppTheme.brandInk.withValues(alpha: 0.08)),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.white, AppTheme.panel.withValues(alpha: 0.65)],
-          ),
-        ),
+        decoration: AppTheme.tileDecoration(),
         child: Padding(
-          padding: const EdgeInsets.all(13),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               Container(
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: AppTheme.brandSky.withValues(alpha: 0.56),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.brandSky.withValues(alpha: 0.96),
+                      AppTheme.brandGold.withValues(alpha: 0.32),
+                    ],
+                  ),
                   borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                    color: AppTheme.brandTeal.withValues(alpha: 0.16),
+                  ),
                 ),
                 child: Icon(icon, size: 18, color: AppTheme.brandInk),
               ),
@@ -65,9 +67,9 @@ class DashboardSectionEntry extends StatelessWidget {
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                        height: 1.35,
+                        fontSize: 11.8,
+                        color: AppTheme.textMuted,
+                        height: 1.32,
                       ),
                     ),
                   ],
@@ -81,7 +83,10 @@ class DashboardSectionEntry extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: AppTheme.brandCoral.withValues(alpha: 0.12),
+                    color: AppTheme.brandCoral.withValues(alpha: 0.16),
+                    border: Border.all(
+                      color: AppTheme.brandCoral.withValues(alpha: 0.28),
+                    ),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
@@ -94,7 +99,11 @@ class DashboardSectionEntry extends StatelessWidget {
                 ),
               ],
               const SizedBox(width: 6),
-              const Icon(Icons.arrow_forward_ios_rounded, size: 13),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 13,
+                color: AppTheme.brandTeal.withValues(alpha: 0.9),
+              ),
             ],
           ),
         ),
@@ -146,8 +155,18 @@ class DashboardSectionScreen extends StatelessWidget {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: AppTheme.brandSky.withValues(alpha: 0.58),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppTheme.brandSky.withValues(alpha: 0.96),
+                                AppTheme.brandGold.withValues(alpha: 0.30),
+                              ],
+                            ),
                             borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppTheme.brandTeal.withValues(alpha: 0.16),
+                            ),
                           ),
                           child: Icon(icon, size: 19),
                         ),
@@ -166,7 +185,7 @@ class DashboardSectionScreen extends StatelessWidget {
                                   subtitle!,
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.black54,
+                                    color: AppTheme.textMuted,
                                   ),
                                 ),
                               ],

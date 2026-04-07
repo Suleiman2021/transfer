@@ -1,4 +1,5 @@
 import '../../features/auth/logic/auth_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_shell_background.dart';
 import '../widgets/responsive_frame.dart';
 import 'package:flutter/material.dart';
@@ -146,7 +147,7 @@ class _DeviceSecurityGateState extends ConsumerState<DeviceSecurityGate> {
               const SizedBox(height: 8),
               Text(
                 subtitle,
-                style: const TextStyle(color: Colors.black54, height: 1.4),
+                style: const TextStyle(color: AppTheme.textMuted, height: 1.4),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),

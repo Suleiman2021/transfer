@@ -31,9 +31,23 @@ class OperationsTransferTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.96),
+            AppTheme.panel.withValues(alpha: 0.64),
+          ],
+        ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.brandInk.withValues(alpha: 0.08)),
+        border: Border.all(color: AppTheme.brandTeal.withValues(alpha: 0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.brandInk.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,13 +84,13 @@ class OperationsTransferTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '\u0627\u0644\u0645\u0628\u0644\u063a: ${moneyText(transfer.amountValue)} - \u0639\u0645\u0648\u0644\u0629 \u0627\u0644\u062e\u0632\u0646\u0629: ${moneyText(transfer.commissionValue)} - \u0631\u0628\u062d \u0627\u0644\u0645\u0646\u0641\u0630: ${moneyText(transfer.agentProfitValue)}',
-            style: const TextStyle(fontSize: 13, color: Colors.black54),
+            style: const TextStyle(fontSize: 12.8, color: AppTheme.textMuted),
           ),
           if (transfer.cashoutProfitValue > 0) ...[
             const SizedBox(height: 4),
             Text(
               '\u0631\u0628\u062d \u0635\u0631\u0641 \u0627\u0644\u0639\u0645\u064a\u0644: ${moneyText(transfer.cashoutProfitValue)}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if ((transfer.customerName ?? '').isNotEmpty ||
@@ -84,14 +98,14 @@ class OperationsTransferTile extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0639\u0645\u064a\u0644: ${transfer.customerName ?? '-'} - ${transfer.customerPhone ?? '-'}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if ((transfer.note ?? '').isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               '\u0645\u0644\u0627\u062d\u0638\u0629: ${transfer.note}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if (showActions) ...[

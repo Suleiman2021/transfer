@@ -64,7 +64,7 @@ class AppNotifier {
     final textStyle =
         snackTheme.contentTextStyle ??
         const TextStyle(
-          color: Colors.black87,
+          color: AppTheme.textDark,
           fontWeight: FontWeight.w700,
           height: 1.35,
         );

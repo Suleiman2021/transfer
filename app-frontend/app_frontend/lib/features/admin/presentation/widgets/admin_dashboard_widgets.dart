@@ -19,14 +19,40 @@ class AdminHeroHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(19),
       decoration: BoxDecoration(
         gradient: AppTheme.heroGradient,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white24),
+        border: Border.all(color: Colors.white30),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.brandInk.withValues(alpha: 0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 16),
+          ),
+        ],
       ),
       child: Stack(
         children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.16),
+                      Colors.transparent,
+                      Colors.white.withValues(alpha: 0.06),
+                    ],
+                    stops: const [0.0, 0.58, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
           Positioned(
             top: -18,
             right: -18,
@@ -44,10 +70,22 @@ class AdminHeroHeader extends StatelessWidget {
               final compact = constraints.maxWidth < 760;
               final identity = Row(
                 children: [
-                  const CircleAvatar(
-                    radius: 24,
-                    backgroundColor: Colors.white24,
-                    child: Icon(
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.30),
+                          Colors.white.withValues(alpha: 0.12),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.26)),
+                    ),
+                    child: const Icon(
                       Icons.admin_panel_settings_rounded,
                       color: Colors.white,
                       size: 24,
@@ -62,8 +100,9 @@ class AdminHeroHeader extends StatelessWidget {
                           title,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 24,
+                            fontSize: 23,
                             fontWeight: FontWeight.w800,
+                            height: 1.14,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -71,7 +110,8 @@ class AdminHeroHeader extends StatelessWidget {
                           subtitle,
                           style: const TextStyle(
                             color: Colors.white70,
-                            height: 1.4,
+                            height: 1.34,
+                            fontSize: 13.5,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -139,49 +179,45 @@ class AdminMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 108,
+      width: 114,
       child: Card(
         child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: accent.withValues(alpha: 0.12)),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.white, accent.withValues(alpha: 0.05)],
-            ),
-          ),
+          decoration: AppTheme.metricCardDecoration(accent: accent),
           child: Padding(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 22,
-                  height: 22,
+                  width: 24,
+                  height: 24,
                   decoration: BoxDecoration(
                     color: accent.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(icon, size: 13, color: accent),
+                  child: Icon(icon, size: 14, color: accent),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
                 Text(
                   label,
-                  style: const TextStyle(color: Colors.black54, fontSize: 10),
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 10.8,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 1),
+                const SizedBox(height: 2),
                 Text(
                   hint,
-                  style: const TextStyle(fontSize: 9.5, color: Colors.black45),
+                  style: const TextStyle(fontSize: 10.2, color: AppTheme.textSoft),
                 ),
               ],
             ),
@@ -209,15 +245,7 @@ class AdminSectionCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
       child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: AppTheme.brandInk.withValues(alpha: 0.06)),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.white, AppTheme.panel.withValues(alpha: 0.52)],
-          ),
-        ),
+        decoration: AppTheme.sectionCardDecoration(),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -227,7 +255,11 @@ class AdminSectionCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 subtitle,
-                style: const TextStyle(fontSize: 13, color: Colors.black54),
+                style: const TextStyle(
+                  fontSize: 12.8,
+                  color: AppTheme.textMuted,
+                  height: 1.35,
+                ),
               ),
               const SizedBox(height: 12),
               child,
@@ -267,9 +299,16 @@ class AdminTransferTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.panel.withValues(alpha: 0.65),
+        color: Colors.white.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.brandInk.withValues(alpha: 0.06)),
+        border: Border.all(color: AppTheme.brandTeal.withValues(alpha: 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.brandInk.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -305,13 +344,13 @@ class AdminTransferTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '\u0627\u0644\u0645\u0628\u0644\u063a: ${moneyText(transfer.amountValue)} - \u0639\u0645\u0648\u0644\u0629 \u0627\u0644\u062e\u0632\u0646\u0629: ${moneyText(transfer.commissionValue)} - \u0631\u0628\u062d \u0627\u0644\u0645\u0646\u0641\u0630: ${moneyText(transfer.agentProfitValue)}',
-            style: const TextStyle(fontSize: 13, color: Colors.black54),
+            style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
           ),
           if (transfer.cashoutProfitValue > 0) ...[
             const SizedBox(height: 4),
             Text(
               '\u0631\u0628\u062d \u0635\u0631\u0641 \u0627\u0644\u0639\u0645\u064a\u0644: ${moneyText(transfer.cashoutProfitValue)}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if ((transfer.customerName ?? '').isNotEmpty ||
@@ -319,14 +358,14 @@ class AdminTransferTile extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0639\u0645\u064a\u0644: ${transfer.customerName ?? '-'} - ${transfer.customerPhone ?? '-'}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if ((transfer.note ?? '').isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               '\u0645\u0644\u0627\u062d\u0638\u0629: ${transfer.note}',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
             ),
           ],
           if (showActions) ...[
@@ -362,7 +401,8 @@ class AdminStateBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: AppTheme.brandSky.withValues(alpha: 0.65),
+        color: AppTheme.brandSky.withValues(alpha: 0.72),
+        border: Border.all(color: AppTheme.brandTeal.withValues(alpha: 0.22)),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(

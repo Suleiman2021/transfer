@@ -162,7 +162,7 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
               const SizedBox(height: 2),
               Text(
                 '${widget.user.fullName} - @${widget.user.username}',
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
               ),
             ],
           ),
@@ -271,7 +271,7 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                   value: moneyText(report.summary.totalCommission),
                   hint: 'إجمالي العمولات',
                   icon: Icons.paid_rounded,
-                  accent: AppTheme.brandInk,
+                  accent: AppTheme.brandPlum,
                 ),
               ),
             ],

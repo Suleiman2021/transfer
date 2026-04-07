@@ -223,7 +223,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 message,
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: Colors.black87,
+                  color: AppTheme.textDark,
                   height: 1.3,
                 ),
               ),
@@ -284,8 +284,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                         ),
                                         borderRadius: BorderRadius.circular(14),
                                       ),
-                                      child: const Icon(
-                                        Icons.lock_person_rounded,
+                                      clipBehavior: Clip.antiAlias,
+                                      child: Image.asset(
+                                        'assets/branding/app_logo.png',
+                                        fit: BoxFit.cover,
                                       ),
                                     ),
                                     const SizedBox(height: 12),
@@ -300,7 +302,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     Text(
                                       _subtitle,
                                       style: const TextStyle(
-                                        color: Colors.black54,
+                                        color: AppTheme.textMuted,
                                         height: 1.35,
                                       ),
                                       textAlign: TextAlign.center,

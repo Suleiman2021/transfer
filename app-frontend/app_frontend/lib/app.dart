@@ -36,12 +36,12 @@ class CashboxTransferApp extends ConsumerWidget {
         final media = MediaQuery.of(context);
         final width = media.size.width;
         final textScale = width >= 1200
-            ? 1.0
+            ? 1.03
             : width >= 900
-            ? 0.98
+            ? 1.01
             : width >= 600
-            ? 0.97
-            : 0.95;
+            ? 1.0
+            : 1.0;
 
         return Directionality(
           textDirection: TextDirection.rtl,
@@ -135,7 +135,7 @@ class _RoleMismatchScreen extends ConsumerWidget {
                   Text(
                     subtitle,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.black54, height: 1.4),
+                    style: const TextStyle(color: AppTheme.textMuted, height: 1.4),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(

@@ -335,7 +335,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             child: Text(
               label,
               style: const TextStyle(
-                color: Colors.black54,
+                color: AppTheme.textMuted,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -345,7 +345,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             value,
             style: TextStyle(
               fontWeight: emphasize ? FontWeight.w800 : FontWeight.w700,
-              color: emphasize ? AppTheme.brandTeal : Colors.black87,
+              color: emphasize ? AppTheme.brandTeal : AppTheme.textDark,
             ),
           ),
         ],
@@ -1051,7 +1051,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 value: moneyText(_commissionRevenue),
                 hint: 'من دليل القيود',
                 icon: Icons.paid_rounded,
-                accent: AppTheme.brandInk,
+                accent: AppTheme.brandPlum,
               ),
             ),
           ],
@@ -1542,7 +1542,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             '@${user.username}',
                             style: const TextStyle(
                               fontSize: 12,
-                              color: Colors.black54,
+                              color: AppTheme.textMuted,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1861,7 +1861,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     alignment: Alignment.centerRight,
                     child: Text(
                       'لا يوجد مسؤولون مطابقون حالياً.',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                     ),
                   ),
                 ),
@@ -2056,7 +2056,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             'عمولة ${moneyText(row.totalCommission)} / ربح وكيل ${moneyText(row.totalAgentProfit)}',
                             style: const TextStyle(
                               fontSize: 11,
-                              color: Colors.black54,
+                              color: AppTheme.textMuted,
                             ),
                           ),
                         ],

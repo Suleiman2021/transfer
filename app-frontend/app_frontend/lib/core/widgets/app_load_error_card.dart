@@ -136,7 +136,7 @@ class AppLoadErrorCard extends StatelessWidget {
                       Text(
                         resolvedSubtitle,
                         style: const TextStyle(
-                          color: Colors.black54,
+                          color: AppTheme.textMuted,
                           fontSize: 12,
                           height: 1.35,
                         ),
@@ -151,15 +151,15 @@ class AppLoadErrorCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
+                color: AppTheme.brandSky.withValues(alpha: 0.34),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFFDE68A)),
+                border: Border.all(color: meta.color.withValues(alpha: 0.28)),
               ),
               child: Text(
                 message,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF7C2D12),
+                  color: meta.color.withValues(alpha: 0.92),
                   height: 1.3,
                 ),
               ),

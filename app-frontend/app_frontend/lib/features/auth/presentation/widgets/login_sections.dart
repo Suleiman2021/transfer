@@ -74,7 +74,7 @@ class LoginFormPanel extends StatelessWidget {
             const Text(
               'أدخل بيانات الحساب الذي أنشأه المدير لك.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: AppTheme.textMuted),
             ),
             const SizedBox(height: 20),
             TextFormField(

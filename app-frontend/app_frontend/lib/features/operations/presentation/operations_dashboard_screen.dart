@@ -608,7 +608,7 @@ class _OperationsDashboardScreenState
             child: Text(
               label,
               style: const TextStyle(
-                color: Colors.black54,
+                color: AppTheme.textMuted,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -618,7 +618,7 @@ class _OperationsDashboardScreenState
             value,
             style: TextStyle(
               fontWeight: emphasize ? FontWeight.w800 : FontWeight.w700,
-              color: emphasize ? AppTheme.brandTeal : Colors.black87,
+              color: emphasize ? AppTheme.brandTeal : AppTheme.textDark,
             ),
           ),
         ],

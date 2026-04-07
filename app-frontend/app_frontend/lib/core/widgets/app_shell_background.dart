@@ -15,32 +15,54 @@ class AppShellBackground extends StatelessWidget {
           decoration: BoxDecoration(gradient: AppTheme.shellGradient),
         ),
         Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.22),
+                  Colors.white.withValues(alpha: 0.04),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
           child: IgnorePointer(
-            child: CustomPaint(painter: _GridPatternPainter()),
+            child: CustomPaint(painter: _MeshPatternPainter()),
           ),
         ),
         Positioned(
-          top: -140,
-          left: -100,
+          top: -120,
+          left: -80,
           child: _GlowBlob(
-            size: 320,
-            color: AppTheme.brandGold.withValues(alpha: 0.18),
+            size: 300,
+            color: AppTheme.brandTeal.withValues(alpha: 0.20),
           ),
         ),
         Positioned(
-          right: -80,
-          top: 80,
+          right: -70,
+          top: 60,
           child: _GlowBlob(
-            size: 240,
-            color: AppTheme.brandTeal.withValues(alpha: 0.16),
+            size: 250,
+            color: AppTheme.brandGold.withValues(alpha: 0.20),
           ),
         ),
         Positioned(
-          bottom: -110,
-          right: -60,
+          bottom: -100,
+          right: -50,
           child: _GlowBlob(
-            size: 260,
-            color: AppTheme.brandCoral.withValues(alpha: 0.14),
+            size: 230,
+            color: AppTheme.brandCoral.withValues(alpha: 0.17),
+          ),
+        ),
+        Positioned(
+          bottom: -90,
+          left: -40,
+          child: _GlowBlob(
+            size: 210,
+            color: AppTheme.brandSky.withValues(alpha: 0.28),
           ),
         ),
         child,
@@ -61,25 +83,47 @@ class _GlowBlob extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [color, color.withValues(alpha: 0.0)],
+            radius: 0.78,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _GridPatternPainter extends CustomPainter {
+class _MeshPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppTheme.brandInk.withValues(alpha: 0.045)
+    final verticalPaint = Paint()
+      ..color = AppTheme.brandInk.withValues(alpha: 0.04)
       ..strokeWidth = 1;
+    final diagonalPaint = Paint()
+      ..color = AppTheme.brandTeal.withValues(alpha: 0.05)
+      ..strokeWidth = 1;
+    final dotPaint = Paint()..color = AppTheme.brandTeal.withValues(alpha: 0.09);
 
-    const spacing = 34.0;
+    const spacing = 38.0;
     for (double x = 0; x <= size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), verticalPaint);
     }
-    for (double y = 0; y <= size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+
+    const diagonalSpacing = 90.0;
+    for (double y = -size.height; y <= size.height; y += diagonalSpacing) {
+      canvas.drawLine(
+        Offset(0, y + size.height),
+        Offset(size.width, y),
+        diagonalPaint,
+      );
+    }
+
+    for (double x = spacing; x <= size.width; x += spacing * 2) {
+      for (double y = spacing; y <= size.height; y += spacing * 2) {
+        canvas.drawCircle(Offset(x, y), 1.35, dotPaint);
+      }
     }
   }
 
