@@ -1,0 +1,63 @@
+# OS / Editors
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# IDE folders
+.idea/
+.vscode/
+*.iml
+
+# Local helper files
+paths.txt
+temp_arabic_test.txt
+tree.py
+
+# ---------------------------
+# Backend (FastAPI / Python)
+# ---------------------------
+backend/.env
+backend/.venv/
+backend/venv/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+
+# ---------------------------
+# Flutter mobile frontend
+# ---------------------------
+app-frontend/app_frontend/.dart_tool/
+app-frontend/app_frontend/.flutter-plugins
+app-frontend/app_frontend/.flutter-plugins-dependencies
+app-frontend/app_frontend/.pub/
+app-frontend/app_frontend/.pub-cache/
+app-frontend/app_frontend/build/
+app-frontend/app_frontend/coverage/
+app-frontend/app_frontend/flutter_web_run.log
+app-frontend/app_frontend/temp_write_test.txt
+
+# Android / iOS local generated files
+app-frontend/app_frontend/android/.gradle/
+app-frontend/app_frontend/android/local.properties
+app-frontend/app_frontend/ios/Flutter/ephemeral/
+app-frontend/app_frontend/ios/Flutter/Generated.xcconfig
+
+# ---------------------------
+# Optional admin web frontend
+# ---------------------------
+admin-web-frontend/.env
+admin-web-frontend/node_modules/
+admin-web-frontend/dist/
+admin-web-frontend/build/
+admin-web-frontend/.next/
+admin-web-frontend/.nuxt/
+admin-web-frontend/.cache/
+
+# Secret files
+*.pem
+*.key
