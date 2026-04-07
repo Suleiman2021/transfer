@@ -363,3 +363,8 @@ def root():
             "Double-entry ledger posting is enabled for completed transfers",
         ],
     }
+
+
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    return {"status": "ok"}
