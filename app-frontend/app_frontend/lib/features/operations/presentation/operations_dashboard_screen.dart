@@ -237,7 +237,7 @@ class _OperationsDashboardScreenState
   }
 
   String _dateText(DateTime? value) {
-    if (value == null) return 'ط؛ظٹط± ظ…ط­ط¯ط¯';
+    if (value == null) return 'غير محدد';
     final y = value.year.toString().padLeft(4, '0');
     final m = value.month.toString().padLeft(2, '0');
     final d = value.day.toString().padLeft(2, '0');
@@ -334,7 +334,7 @@ class _OperationsDashboardScreenState
         _inactiveNoticeShown = true;
         AppNotifier.warning(
           context,
-          'طھظ… ط¥ظ„ط؛ط§ط، طھظپط¹ظٹظ„ ط§ظ„ط­ط³ط§ط¨ ظ…ظ† ظ‚ط¨ظ„ ط§ظ„ط¥ط¯ط§ط±ط©. ظٹظ…ظƒظ†ظƒ ط¹ط±ط¶ ط§ظ„ط³ط¬ظ„ ظˆط§ظ„طھظ‚ط§ط±ظٹط± ظپظ‚ط·.',
+          'تم إلغاء تفعيل الحساب من قبل الإدارة. يمكنك عرض السجل والتقارير فقط.',
         );
       }
       if (isUserActive) {
@@ -356,26 +356,26 @@ class _OperationsDashboardScreenState
   bool _isInactiveError(Object error) {
     final text = error.toString().toLowerCase();
     return text.contains('user is inactive') ||
-        text.contains('ط§ظ„ط­ط³ط§ط¨ ط؛ظٹط± ظ…ظپط¹ظ„') ||
-        text.contains('ط¥ظ„ط؛ط§ط، طھظپط¹ظٹظ„');
+        text.contains('الحساب غير مفعل') ||
+        text.contains('إلغاء تفعيل');
   }
 
   String _friendlyLoadError(Object error) {
     final raw = error.toString().replaceFirst('ApiException:', '').trim();
     final text = raw.toLowerCase();
-    if (text.contains('طھط¹ط°ط± ط§ظ„ظˆطµظˆظ„') ||
+    if (text.contains('تعذر الوصول') ||
         text.contains('failed host lookup') ||
         text.contains('socket') ||
         text.contains('connection') ||
         text.contains('timeout') ||
-        text.contains('ظ…ظ‡ظ„ط©')) {
-      return 'طھط¹ط°ط± ط§ظ„ط§طھطµط§ظ„ ط¨ط§ظ„ط´ط¨ظƒط© ط£ظˆ ط§ظ„ط®ط§ط¯ظ…. طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ط¥ظ†طھط±ظ†طھ ظˆط±ط§ط¨ط· API ط«ظ… ط£ط¹ط¯ ط§ظ„ظ…ط­ط§ظˆظ„ط©.';
+        text.contains('مهلة')) {
+      return 'تعذر الاتصال بالشبكة أو الخادم. تحقق من الإنترنت ورابط API ثم أعد المحاولة.';
     }
     if (text.contains('401') || text.contains('403')) {
-      return 'طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¨ط³ط¨ط¨ طµظ„ط§ط­ظٹط§طھ ط§ظ„ظˆطµظˆظ„. ط³ط¬ظ‘ظ„ ط§ظ„ط¯ط®ظˆظ„ ظ…ط¬ط¯ط¯ظ‹ط§.';
+      return 'تعذر تحميل البيانات بسبب صلاحيات الوصول. سجّل الدخول مجددًا.';
     }
     if (raw.isEmpty) {
-      return 'ط­ط¯ط« ط®ط·ط£ ط؛ظٹط± ظ…طھظˆظ‚ط¹ ط£ط«ظ†ط§ط، طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ.';
+      return 'حدث خطأ غير متوقع أثناء تحميل البيانات.';
     }
     return raw;
   }
@@ -383,7 +383,7 @@ class _OperationsDashboardScreenState
   void _showInactiveBlockedMessage() {
     AppNotifier.warning(
       context,
-      'ط§ظ„ط­ط³ط§ط¨ ط؛ظٹط± ظ…ظپط¹ظ„ ط­ط§ظ„ظٹظ‹ط§. ظ„ط§ ظٹظ…ظƒظ† طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط§طھ ط¥ظ„ظ‰ ط£ظ† ظٹطھظ… طھظپط¹ظٹظ„ظ‡ ظ…ظ† ط§ظ„ط¥ط¯ط§ط±ط©.',
+      'الحساب غير مفعل حاليًا. لا يمكن تنفيذ العمليات إلى أن يتم تفعيله من الإدارة.',
     );
   }
 
@@ -607,8 +607,8 @@ class _OperationsDashboardScreenState
       sourceName: source?.name ?? '-',
       destinationName: _isCustomerCashoutFlow()
           ? ((_customerNameController.text.trim().isEmpty)
-                ? 'ط¹ظ…ظٹظ„'
-                : 'ط¹ظ…ظٹظ„: ${_customerNameController.text.trim()}')
+                ? 'عميل'
+                : 'عميل: ${_customerNameController.text.trim()}')
           : (destination?.name ?? '-'),
       operationLabel: _operationLabel(_operationType),
       requestedAmount: requestedAmount,
@@ -768,42 +768,42 @@ class _OperationsDashboardScreenState
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            title: const Text('طھط£ظƒظٹط¯ طھظ†ظپظٹط° ط§ظ„ط­ظˆط§ظ„ط©'),
+            title: const Text('تأكيد تنفيذ الحوالة'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _previewLine('ط§ظ„ط¹ظ…ظ„ظٹط©', preview.operationLabel),
-                  _previewLine('ظ…ظ†', preview.sourceName),
-                  _previewLine('ط¥ظ„ظ‰', preview.destinationName),
+                  _previewLine('العملية', preview.operationLabel),
+                  _previewLine('من', preview.sourceName),
+                  _previewLine('إلى', preview.destinationName),
                   const Divider(height: 18),
                   _previewLine(
                     preview.splitInput
-                        ? 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ط®ظ„'
-                        : 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ…ط¯ط®ظ„',
+                        ? 'المبلغ الإجمالي المدخل'
+                        : 'المبلغ المدخل',
                     moneyText(preview.requestedAmount),
                   ),
                   _previewLine(
-                    'ط¹ظ…ظˆظ„ط© ط§ظ„ط®ط²ظ†ط©',
+                    'عمولة الخزنة',
                     '${moneyText(preview.commissionAmount)} (${_fmt2(preview.commissionPercent)}%)',
                   ),
                   if (preview.senderProfitAmount > 0)
                     _previewLine(
-                      'ط±ط¨ط­ ط§ظ„ظ…ط±ط³ظ„',
+                      'ربح المرسل',
                       '${moneyText(preview.senderProfitAmount)} (${_fmt2(preview.senderProfitPercent)}%)',
                     ),
                   if (preview.cashoutProfitAmount > 0)
                     _previewLine(
-                      'ط±ط¨ط­ طµط±ظپ ط§ظ„ط¹ظ…ظٹظ„',
+                      'ربح صرف العميل',
                       '${moneyText(preview.cashoutProfitAmount)} (${_fmt2(preview.cashoutProfitPercent)}%)',
                     ),
                   _previewLine(
-                    'ط§ظ„ط®طµظ… ظ…ظ† ط±طµظٹط¯ ط§ظ„ظ…ط±ط³ظ„',
+                    'الخصم من رصيد المرسل',
                     moneyText(preview.senderDeduction),
                   ),
                   _previewLine(
-                    'ط§ظ„طµط§ظپظٹ ط§ظ„ظˆط§طµظ„ ظ„ظ„ظ…ط³طھظ„ظ…',
+                    'الصافي الواصل للمستلم',
                     moneyText(preview.recipientCredit),
                     emphasize: true,
                   ),
@@ -813,11 +813,11 @@ class _OperationsDashboardScreenState
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('ط¥ظ„ط؛ط§ط،'),
+                child: const Text('إلغاء'),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('طھط£ظƒظٹط¯ ط§ظ„طھظ†ظپظٹط°'),
+                child: const Text('تأكيد التنفيذ'),
               ),
             ],
           ),
@@ -871,27 +871,27 @@ class _OperationsDashboardScreenState
 
   String _operationLabel(String type) {
     if (widget.session.role == UserRole.agent && type == 'agent_funding') {
-      return 'ط·ظ„ط¨ ط±طµظٹط¯ ظ…ظ† ط§ظ„ظ…ط±ظƒط²';
+      return 'طلب رصيد من المركز';
     }
     if (type == 'customer_cashout') {
-      return 'طµط±ظپ ط±طµظٹط¯ ط¹ظ…ظٹظ„';
+      return 'صرف رصيد عميل';
     }
     return transferTypeLabelAr(type);
   }
 
   String _operationHint(String type) {
     if (widget.session.role == UserRole.agent && type == 'agent_funding') {
-      return 'ط¥ط±ط³ط§ظ„ ط·ظ„ط¨ طھط­ظˆظٹظ„ ط±طµظٹط¯ ظ…ظ† ط§ظ„ط®ط²ظ†ط© ط§ظ„ظ…ط±ظƒط²ظٹط© ط¥ظ„ظ‰ طµظ†ط¯ظˆظ‚ ط§ظ„ظˆظƒظٹظ„ ط¨ط§ظ†طھط¸ط§ط± ط§ط¹طھظ…ط§ط¯ ط§ظ„ط£ط¯ظ…ظ†.';
+      return 'إرسال طلب تحويل رصيد من الخزنة المركزية إلى صندوق الوكيل بانتظار اعتماد الأدمن.';
     }
     if (widget.session.role == UserRole.agent && type == 'topup') {
-      return 'ط£ط¯ط®ظ„ ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ظ‚ط¨ظˆط¶ ظ…ظ† ط§ظ„ظ…ط¹طھظ…ط¯. ط§ظ„ظ†ط¸ط§ظ… ظٹط®طµظ… ط¹ظ…ظˆظ„ط© ط§ظ„ط®ط²ظ†ط© ظˆط±ط¨ط­ ط§ظ„ظˆظƒظٹظ„ طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ظˆظٹط­ظˆظ‘ظ„ ط§ظ„طµط§ظپظٹ ظ„ظ„ظ…ط¹طھظ…ط¯.';
+      return 'أدخل المبلغ الإجمالي المقبوض من المعتمد. النظام يخصم عمولة الخزنة وربح الوكيل تلقائياً ويحوّل الصافي للمعتمد.';
     }
     if (widget.session.role == UserRole.accredited &&
         type == 'network_transfer') {
-      return 'ط£ط¯ط®ظ„ ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ. ط³ظٹطھظ… ط§ط­طھط³ط§ط¨ ط¹ظ…ظˆظ„ط© ط§ظ„ط®ط²ظ†ط© ظˆط±ط¨ط­ ط§ظ„ظ…ط¹طھظ…ط¯ طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ظˆظٹطµظ„ ط§ظ„طµط§ظپظٹ ظ„ظ„ظ…ط¹طھظ…ط¯ ط§ظ„ط¢ط®ط±.';
+      return 'أدخل المبلغ الإجمالي. سيتم احتساب عمولة الخزنة وربح المعتمد تلقائياً ويصل الصافي للمعتمد الآخر.';
     }
     if (type == 'customer_cashout') {
-      return 'ط£ط¯ط®ظ„ ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„ ظˆظ‡ط§طھظپظ‡ ظˆظ†ط³ط¨ط© ط±ط¨ط­ ط§ظ„طµط±ظپ ط§ظ„ط®ط§طµط© ط¨ظƒ. ط§ظ„ظˆط¬ظ‡ط© ظ‡ظٹ ط§ظ„ط¹ظ…ظٹظ„ ظ…ط¨ط§ط´ط±ط© ط¨ط¯ظˆظ† طµظ†ط¯ظˆظ‚ ظˆط¨ط¯ظˆظ† ظ…ظˆط§ظپظ‚ط© ط§ظ„ط£ط¯ظ…ظ†.';
+      return 'أدخل اسم العميل وهاتفه ونسبة ربح الصرف الخاصة بك. الوجهة هي العميل مباشرة بدون صندوق وبدون موافقة الأدمن.';
     }
     return transferTypeHintAr(type);
   }
@@ -908,17 +908,17 @@ class _OperationsDashboardScreenState
     }
 
     if (!_operationFormKey.currentState!.validate()) {
-      _show('طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ظ…ط¯ط®ظ„ط§طھ ط§ظ„ظ…ط·ظ„ظˆط¨ط©.', isError: true);
+      _show('تحقق من المدخلات المطلوبة.', isError: true);
       return;
     }
 
     if (_fromCashboxId == null || _toCashboxId == null) {
-      _show('ط§ط®طھط± ط§ظ„طµظ†ط¯ظˆظ‚ظٹظ† ط£ظˆظ„ط§ظ‹.', isError: true);
+      _show('اختر الصندوقين أولاً.', isError: true);
       return;
     }
     final source = _cashboxById(_fromCashboxId);
     if (source == null) {
-      _show('طھط¹ط°ط± طھط­ط¯ظٹط¯ طµظ†ط¯ظˆظ‚ ط§ظ„ط¥ط±ط³ط§ظ„.', isError: true);
+      _show('تعذر تحديد صندوق الإرسال.', isError: true);
       return;
     }
 
@@ -951,10 +951,10 @@ class _OperationsDashboardScreenState
         _round2(source.balanceValue) < _round2(preview.senderDeduction)) {
       final shortage = _round2(preview.senderDeduction - source.balanceValue);
       _show(
-        'ط§ظ„ط±طµظٹط¯ ط؛ظٹط± ظƒط§ظپظچ ظ„طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط©.\n'
-        'ط§ظ„ظ…طھط§ط­: ${moneyText(source.balanceValue)} - '
-        'ط§ظ„ظ…ط·ظ„ظˆط¨ ظ…ط¹ ط§ظ„ط®طµظˆظ…ط§طھ: ${moneyText(preview.senderDeduction)} - '
-        'ط§ظ„ط¹ط¬ط²: ${moneyText(shortage)}',
+        'الرصيد غير كافٍ لتنفيذ العملية.\n'
+        'المتاح: ${moneyText(source.balanceValue)} - '
+        'المطلوب مع الخصومات: ${moneyText(preview.senderDeduction)} - '
+        'العجز: ${moneyText(shortage)}',
         isError: true,
       );
       return;
@@ -996,9 +996,9 @@ class _OperationsDashboardScreenState
       _show(
         transfer.state == 'pending_review'
             ? (_isAgentFundingRequestFlow()
-                  ? 'طھظ… ط¥ط±ط³ط§ظ„ ط·ظ„ط¨ ط§ظ„ط±طµظٹط¯ ظ…ظ† ط§ظ„ظ…ط±ظƒط² ط¨ط§ظ†طھط¸ط§ط± ط§ط¹طھظ…ط§ط¯ ط§ظ„ط£ط¯ظ…ظ†.'
-                  : 'طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط·ظ„ط¨ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ظ…ظˆط§ظپظ‚ط©.')
-            : 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط© ط¨ظ†ط¬ط§ط­.',
+                  ? 'تم إرسال طلب الرصيد من المركز بانتظار اعتماد الأدمن.'
+                  : 'تم إرسال الطلب بانتظار الموافقة.')
+            : 'تم تنفيذ العملية بنجاح.',
       );
       await _loadData();
       _closeInputSectionIfOpen();
@@ -1066,7 +1066,7 @@ class _OperationsDashboardScreenState
     final route = _resolveByNameTransferRoute();
     if (route == null) {
       _show(
-        'طھط¹ط°ط± طھط­ط¯ظٹط¯ ظ…ط³ط§ط± ط§ظ„طھط­ظˆظٹظ„ ط­ط³ط¨ ط§ظ„ط§ط³ظ…. طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ظ…ط¯ط®ظ„ط§طھ.',
+        'تعذر تحديد مسار التحويل حسب الاسم. تحقق من المدخلات.',
         isError: true,
       );
       return;
@@ -1074,7 +1074,7 @@ class _OperationsDashboardScreenState
 
     final source = _cashboxById(route.fromCashboxId);
     if (source == null) {
-      _show('طھط¹ط°ط± طھط­ط¯ظٹط¯ طµظ†ط¯ظˆظ‚ ط§ظ„ط¥ط±ط³ط§ظ„.', isError: true);
+      _show('تعذر تحديد صندوق الإرسال.', isError: true);
       return;
     }
 
@@ -1083,10 +1083,10 @@ class _OperationsDashboardScreenState
         _round2(source.balanceValue) < _round2(preview.senderDeduction)) {
       final shortage = _round2(preview.senderDeduction - source.balanceValue);
       _show(
-        'ط§ظ„ط±طµظٹط¯ ط؛ظٹط± ظƒط§ظپظچ ظ„طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط©.\n'
-        'ط§ظ„ظ…طھط§ط­: ${moneyText(source.balanceValue)} - '
-        'ط§ظ„ظ…ط·ظ„ظˆط¨ ظ…ط¹ ط§ظ„ط®طµظˆظ…ط§طھ: ${moneyText(preview.senderDeduction)} - '
-        'ط§ظ„ط¹ط¬ط²: ${moneyText(shortage)}',
+        'الرصيد غير كافٍ لتنفيذ العملية.\n'
+        'المتاح: ${moneyText(source.balanceValue)} - '
+        'المطلوب مع الخصومات: ${moneyText(preview.senderDeduction)} - '
+        'العجز: ${moneyText(shortage)}',
         isError: true,
       );
       return;
@@ -1109,8 +1109,8 @@ class _OperationsDashboardScreenState
       _byNameNoteController.clear();
       _show(
         transfer.state == 'pending_review'
-            ? 'طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط·ظ„ط¨ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ظ…ظˆط§ظپظ‚ط©.'
-            : 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط© ط¨ظ†ط¬ط§ط­.',
+            ? 'تم إرسال الطلب بانتظار الموافقة.'
+            : 'تم تنفيذ العملية بنجاح.',
       );
       await _loadData();
       _closeInputSectionIfOpen();
@@ -1132,13 +1132,9 @@ class _OperationsDashboardScreenState
         token: widget.session.token,
         transferId: transfer.id,
         approve: approve,
-        note: approve
-            ? 'ط§ط¹طھظ…ط§ط¯ ظ…ظ† ظ„ظˆط­ط© ط§ظ„ظˆظƒظٹظ„'
-            : 'ط±ظپط¶ ظ…ظ† ظ„ظˆط­ط© ط§ظ„ظˆظƒظٹظ„',
+        note: approve ? 'اعتماد من لوحة الوكيل' : 'رفض من لوحة الوكيل',
       );
-      _show(
-        approve ? 'طھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨.' : 'طھظ… ط±ظپط¶ ط§ظ„ط·ظ„ط¨.',
-      );
+      _show(approve ? 'تم اعتماد الطلب.' : 'تم رفض الطلب.');
       await _loadData();
     } catch (error) {
       _show(error.toString(), isError: true);
@@ -1167,7 +1163,7 @@ class _OperationsDashboardScreenState
   Future<void> _printReport() async {
     try {
       await printReportPdf(
-        title: 'طھظ‚ط±ظٹط± ${roleLabelAr(widget.session.role)}',
+        title: 'تقرير ${roleLabelAr(widget.session.role)}',
         transfers: _transfers,
         dailyRows: _dailyReport,
         fromDate: _fromDate,
@@ -1221,9 +1217,9 @@ class _OperationsDashboardScreenState
                       RevealOnMount(
                         delay: const Duration(milliseconds: 50),
                         child: DashboardHero(
-                          title: 'ظ„ظˆط­ط© ${roleLabelAr(widget.session.role)}',
+                          title: 'لوحة ${roleLabelAr(widget.session.role)}',
                           subtitle:
-                              'طھظ†ط¸ظٹظ… ط§ط­طھط±ط§ظپظٹ ظ„ظ„ط¹ظ…ظ„ظٹط§طھ ط§ظ„ظٹظˆظ…ظٹط© ط¹ط¨ط± ط£ظ‚ط³ط§ظ… ظˆط§ط¶ط­ط© ظˆط³ط±ظٹط¹ط©.',
+                              'تنظيم احترافي للعمليات اليومية عبر أقسام واضحة وسريعة.',
                           caption:
                               '${widget.session.fullName} - ${widget.session.city} / ${widget.session.country}',
                           icon: widget.session.role == UserRole.agent
@@ -1236,14 +1232,14 @@ class _OperationsDashboardScreenState
                               FilledButton.tonalIcon(
                                 onPressed: _loadData,
                                 icon: const Icon(Icons.refresh_rounded),
-                                label: const Text('طھط­ط¯ظٹط«'),
+                                label: const Text('تحديث'),
                               ),
                               OutlinedButton.icon(
                                 onPressed: () => ref
                                     .read(authControllerProvider.notifier)
                                     .logout(),
                                 icon: const Icon(Icons.logout_rounded),
-                                label: const Text('ط®ط±ظˆط¬'),
+                                label: const Text('خروج'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.white,
                                   side: const BorderSide(color: Colors.white30),
@@ -1258,10 +1254,9 @@ class _OperationsDashboardScreenState
                         const SizedBox.shrink()
                       else if (_loadError != null)
                         AppLoadErrorCard(
-                          title:
-                              'طھط¹ط°ط± طھط­ظ…ظٹظ„ ظ„ظˆط­ط© ط§ظ„ط¹ظ…ظ„ظٹط§طھ',
+                          title: 'تعذر تحميل لوحة العمليات',
                           subtitle:
-                              'ظٹظ…ظƒظ†ظƒ ط¥ط¹ط§ط¯ط© ط§ظ„ظ…ط­ط§ظˆظ„ط© ط¨ط¹ط¯ ط§ظ„طھط£ظƒط¯ ظ…ظ† ط§ظ„ط´ط¨ظƒط©.',
+                              'يمكنك إعادة المحاولة بعد التأكد من الشبكة.',
                           message: _loadError!,
                           onRetry: _loadData,
                         )
@@ -1283,7 +1278,7 @@ class _OperationsDashboardScreenState
                                   SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'ط§ظ„ط­ط³ط§ط¨ ط؛ظٹط± ظ…ظپط¹ظ„. ظٹظ…ظƒظ†ظƒ ط¹ط±ط¶ ط§ظ„ط³ط¬ظ„ ظˆط§ظ„طھظ‚ط§ط±ظٹط± ظپظ‚ط·.',
+                                      'الحساب غير مفعل. يمكنك عرض السجل والتقارير فقط.',
                                       style: TextStyle(
                                         color: Color(0xFF7C2D12),
                                         fontWeight: FontWeight.w700,
@@ -1367,9 +1362,9 @@ class _OperationsDashboardScreenState
             SizedBox(
               width: width,
               child: DashboardMetricCard(
-                label: 'طµظ†ط§ط¯ظٹظ‚ظٹ',
+                label: 'صناديقي',
                 value: myBoxes.length.toString(),
-                hint: 'ط§ظ„طµظ†ط§ط¯ظٹظ‚ ط§ظ„طھط§ط¨ط¹ط© ظ„ظٹ',
+                hint: 'الصناديق التابعة لي',
                 icon: Icons.inventory_2_rounded,
                 accent: AppTheme.brandTeal,
               ),
@@ -1377,9 +1372,9 @@ class _OperationsDashboardScreenState
             SizedBox(
               width: width,
               child: DashboardMetricCard(
-                label: 'ط§ظ„ط±طµظٹط¯',
+                label: 'الرصيد',
                 value: moneyText(totalBalance),
-                hint: 'ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط±طµظٹط¯',
+                hint: 'إجمالي الرصيد',
                 icon: Icons.account_balance_wallet_rounded,
                 accent: AppTheme.brandCoral,
               ),
@@ -1388,11 +1383,11 @@ class _OperationsDashboardScreenState
               SizedBox(
                 width: width,
                 child: DashboardMetricCard(
-                  label: 'ط±ط¨ط­ ط§ظ„ظ…ط¹طھظ…ط¯',
+                  label: 'ربح المعتمد',
                   value: moneyText(accreditedProfit),
                   hint:
-                      'ط¯ط§ط®ظ„ ط§ظ„طھط·ط¨ظٹظ‚: ${moneyText(accreditedTransferProfit)}\n'
-                      'طµط±ظپ ط¹ظ…ظٹظ„ (ظ†ظ‚ط¯ظٹ): ${moneyText(accreditedCashoutProfit)}',
+                      'داخل التطبيق: ${moneyText(accreditedTransferProfit)}\n'
+                      'صرف عميل (نقدي): ${moneyText(accreditedCashoutProfit)}',
                   icon: Icons.trending_up_rounded,
                   accent: AppTheme.brandTeal,
                 ),
@@ -1401,10 +1396,9 @@ class _OperationsDashboardScreenState
               SizedBox(
                 width: width,
                 child: DashboardMetricCard(
-                  label: 'ط±ط¨ط­ ط§ظ„ظˆظƒظٹظ„',
+                  label: 'ربح الوكيل',
                   value: moneyText(agentProfit),
-                  hint:
-                      'ط£ط±ط¨ط§ط­ ط§ظ„طھط­ظˆظٹظ„ط§طھ ط§ظ„ظ…ظ†ظپط°ط© ظ…ظ† طµظ†ط§ط¯ظٹظ‚ ط§ظ„ظˆظƒظٹظ„',
+                  hint: 'أرباح التحويلات المنفذة من صناديق الوكيل',
                   icon: Icons.trending_up_rounded,
                   accent: AppTheme.brandTeal,
                 ),
@@ -1412,9 +1406,9 @@ class _OperationsDashboardScreenState
             SizedBox(
               width: width,
               child: DashboardMetricCard(
-                label: 'ط§ظ„ظ…ط¹ظ„ظ‚ط©',
+                label: 'المعلقة',
                 value: _pendingTransfers.length.toString(),
-                hint: 'ط·ظ„ط¨ط§طھ ظ‚ظٹط¯ ط§ظ„ظ…ط±ط§ط¬ط¹ط©',
+                hint: 'طلبات قيد المراجعة',
                 icon: Icons.pending_actions_rounded,
                 accent: AppTheme.brandGold,
               ),
@@ -1432,13 +1426,12 @@ class _OperationsDashboardScreenState
     return Column(
       children: [
         _buildMainGroup(
-          title: 'ط§ظ„ط¹ظ…ظ„ظٹط§طھ ط§ظ„ظٹظˆظ…ظٹط©',
-          subtitle:
-              'ظƒظ„ ظˆط¸ظٹظپط© ظپظٹ ط´ط§ط´ط© ظ…ظ†ظپطµظ„ط© ط¹ط¨ط± ط²ط± ظˆط§ط¶ط­',
+          title: 'العمليات اليومية',
+          subtitle: 'كل وظيفة في شاشة منفصلة عبر زر واضح',
           actions: [
             _buildActionButton(
               icon: Icons.flash_on_rounded,
-              label: 'طھظ†ظپظٹط° ط¹ظ…ظ„ظٹط©',
+              label: 'تنفيذ عملية',
               enabled: _isUserActive,
               onTap: () {
                 if (!_isUserActive) {
@@ -1446,9 +1439,8 @@ class _OperationsDashboardScreenState
                   return;
                 }
                 _openSection(
-                  title: 'طھظ†ظپظٹط° ط¹ظ…ظ„ظٹط©',
-                  subtitle:
-                      'ط¥ط±ط³ط§ظ„ طھط­ظˆظٹظ„ ط£ظˆ طھط¹ط¨ط¦ط© ط£ظˆ طھط­طµظٹظ„',
+                  title: 'تنفيذ عملية',
+                  subtitle: 'إرسال تحويل أو تعبئة أو تحصيل',
                   icon: Icons.flash_on_rounded,
                   builder: (_) => _buildActionsSection(),
                 );
@@ -1473,7 +1465,7 @@ class _OperationsDashboardScreenState
             ),
             _buildActionButton(
               icon: Icons.rule_rounded,
-              label: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
+              label: 'الطلبات المعلقة',
               badge: _pendingTransfers.length.toString(),
               enabled: _isUserActive,
               onTap: () {
@@ -1482,9 +1474,8 @@ class _OperationsDashboardScreenState
                   return;
                 }
                 _openSection(
-                  title: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
-                  subtitle:
-                      'ظ…ط±ط§ط¬ط¹ط© ط§ظ„ط·ظ„ط¨ط§طھ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ظ‚ط±ط§ط±',
+                  title: 'الطلبات المعلقة',
+                  subtitle: 'مراجعة الطلبات بانتظار القرار',
                   icon: Icons.rule_rounded,
                   builder: (_) => _buildPendingSection(),
                 );
@@ -1492,11 +1483,10 @@ class _OperationsDashboardScreenState
             ),
             _buildActionButton(
               icon: Icons.history_rounded,
-              label: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
+              label: 'سجل التحويلات',
               onTap: () => _openSection(
-                title: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
-                subtitle:
-                    'ط¢ط®ط± ط§ظ„طھط­ظˆظٹظ„ط§طھ ط¶ظ…ظ† ط§ظ„ظپطھط±ط© ط§ظ„ظ…ط­ط¯ط¯ط©',
+                title: 'سجل التحويلات',
+                subtitle: 'آخر التحويلات ضمن الفترة المحددة',
                 icon: Icons.history_rounded,
                 builder: (_) => _buildTransfersSection(),
               ),
@@ -1505,26 +1495,25 @@ class _OperationsDashboardScreenState
         ),
         const SizedBox(height: 10),
         _buildMainGroup(
-          title: 'ط§ظ„طھظ‚ط§ط±ظٹط± ظˆط§ظ„ظ…طھط§ط¨ط¹ط©',
-          subtitle: 'ظپظ„طھط±ط©طŒ طھظ‚ط±ظٹط± ظٹظˆظ…ظٹطŒ ظˆط·ط¨ط§ط¹ط© PDF',
+          title: 'التقارير والمتابعة',
+          subtitle: 'فلترة، تقرير يومي، وطباعة PDF',
           actions: [
             _buildActionButton(
               icon: Icons.space_dashboard_rounded,
-              label: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
+              label: 'مؤشرات سريعة',
               onTap: () => _openSection(
-                title: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
-                subtitle: 'ظ…ظ„ط®طµ ط§ظ„ط£ط±ظ‚ط§ظ… ط§ظ„ط£ط³ط§ط³ظٹط©',
+                title: 'مؤشرات سريعة',
+                subtitle: 'ملخص الأرقام الأساسية',
                 icon: Icons.space_dashboard_rounded,
                 builder: (_) => _buildMetricsSection(myBoxes, totalBalance),
               ),
             ),
             _buildActionButton(
               icon: Icons.bar_chart_rounded,
-              label: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
+              label: 'التقارير',
               onTap: () => _openSection(
-                title: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
-                subtitle:
-                    'ط¨ط­ط« ط¨ط§ظ„طھط§ط±ظٹط® ظˆطھظ‚ط§ط±ظٹط± ظٹظˆظ…ظٹط© ظˆط·ط¨ط§ط¹ط© PDF',
+                title: 'التقارير',
+                subtitle: 'بحث بالتاريخ وتقارير يومية وطباعة PDF',
                 icon: Icons.bar_chart_rounded,
                 builder: (_) => _buildReportsSection(),
               ),
@@ -1533,16 +1522,15 @@ class _OperationsDashboardScreenState
         ),
         const SizedBox(height: 10),
         _buildMainGroup(
-          title: 'ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ',
-          subtitle: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ط­ط³ط§ط¨ ظˆط¥ط¹ط¯ط§ط¯ط§طھ ط³ط±ظٹط¹ط©',
+          title: 'الإعدادات',
+          subtitle: 'معلومات الحساب وإعدادات سريعة',
           actions: [
             _buildActionButton(
               icon: Icons.settings_rounded,
-              label: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ط­ط³ط§ط¨',
+              label: 'معلومات الحساب',
               onTap: () => _openSection(
-                title: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ط­ط³ط§ط¨',
-                subtitle:
-                    'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ظ…ط³طھط®ط¯ظ… ظˆط§ظ„ط±ط§ط¨ط· ط§ظ„ط­ط§ظ„ظٹ',
+                title: 'معلومات الحساب',
+                subtitle: 'معلومات المستخدم والرابط الحالي',
                 icon: Icons.settings_rounded,
                 builder: (_) => _buildSettingsSection(),
               ),
@@ -1627,8 +1615,8 @@ class _OperationsDashboardScreenState
 
   Widget _buildMetricsSection(List<CashboxModel> myBoxes, double totalBalance) {
     return DashboardSectionCard(
-      title: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
-      subtitle: 'ط¹ط±ط¶ ظ…طµط؛ط± ظ„ظ„ط­ط§ظ„ط© ط§ظ„ط­ط§ظ„ظٹط©',
+      title: 'مؤشرات سريعة',
+      subtitle: 'عرض مصغر للحالة الحالية',
       icon: Icons.space_dashboard_rounded,
       child: _buildOverviewMetrics(myBoxes, totalBalance),
     );
@@ -1643,7 +1631,7 @@ class _OperationsDashboardScreenState
               child: OutlinedButton.icon(
                 onPressed: _pickFromDate,
                 icon: const Icon(Icons.event_rounded, size: 18),
-                label: Text('ظ…ظ†: ${_dateText(_fromDate)}'),
+                label: Text('من: ${_dateText(_fromDate)}'),
               ),
             ),
             const SizedBox(width: 8),
@@ -1651,7 +1639,7 @@ class _OperationsDashboardScreenState
               child: OutlinedButton.icon(
                 onPressed: _pickToDate,
                 icon: const Icon(Icons.event_note_rounded, size: 18),
-                label: Text('ط¥ظ„ظ‰: ${_dateText(_toDate)}'),
+                label: Text('إلى: ${_dateText(_toDate)}'),
               ),
             ),
           ],
@@ -1663,7 +1651,7 @@ class _OperationsDashboardScreenState
               child: ElevatedButton.icon(
                 onPressed: _loadData,
                 icon: const Icon(Icons.search_rounded, size: 18),
-                label: const Text('ط¨ط­ط«'),
+                label: const Text('بحث'),
               ),
             ),
             const SizedBox(width: 8),
@@ -1677,7 +1665,7 @@ class _OperationsDashboardScreenState
                   _loadData();
                 },
                 icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('ط¥ط¹ط§ط¯ط© طھط¹ظٹظٹظ†'),
+                label: const Text('إعادة تعيين'),
               ),
             ),
           ],
@@ -1688,17 +1676,17 @@ class _OperationsDashboardScreenState
 
   Widget _buildActionsSection() {
     final submitLabel = _isCustomerCashoutFlow()
-        ? 'طھظ†ظپظٹط° طµط±ظپ ط§ظ„ط¹ظ…ظٹظ„'
+        ? 'تنفيذ صرف العميل'
         : widget.session.role == UserRole.accredited &&
               _operationType != 'network_transfer'
-        ? 'ط¥ط±ط³ط§ظ„ ط§ظ„ط·ظ„ط¨'
+        ? 'إرسال الطلب'
         : _isAgentFundingRequestFlow()
-        ? 'ط¥ط±ط³ط§ظ„ ط·ظ„ط¨ ط§ظ„ط±طµظٹط¯'
-        : 'طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط©';
+        ? 'إرسال طلب الرصيد'
+        : 'تنفيذ العملية';
     final operationsDisabled = !_isUserActive;
 
     return DashboardSectionCard(
-      title: 'طھظ†ظپظٹط° ط¹ظ…ظ„ظٹط©',
+      title: 'تنفيذ عملية',
       subtitle: _operationHint(_operationType),
       icon: Icons.flash_on_rounded,
       child: Form(
@@ -1728,7 +1716,7 @@ class _OperationsDashboardScreenState
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
               initialValue: _fromCashboxId,
-              decoration: const InputDecoration(labelText: 'ظ…ظ† طµظ†ط¯ظˆظ‚'),
+              decoration: const InputDecoration(labelText: 'من صندوق'),
               items: _sourceOptions
                   .map(
                     (cashbox) => DropdownMenuItem(
@@ -1792,10 +1780,10 @@ class _OperationsDashboardScreenState
               ),
               decoration: InputDecoration(
                 labelText: _isCustomerCashoutFlow()
-                    ? 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ…ط·ظ„ظˆط¨ طµط±ظپظ‡'
+                    ? 'المبلغ المطلوب صرفه'
                     : _isGrossInputFlow()
-                    ? 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ'
-                    : 'ط§ظ„ظ…ط¨ظ„ط؛',
+                    ? 'المبلغ الإجمالي'
+                    : 'المبلغ',
               ),
               validator: AppValidators.amount,
             ),
@@ -1804,9 +1792,7 @@ class _OperationsDashboardScreenState
               TextFormField(
                 controller: _customerNameController,
                 enabled: !operationsDisabled,
-                decoration: const InputDecoration(
-                  labelText: 'ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„',
-                ),
+                decoration: const InputDecoration(labelText: 'اسم العميل'),
                 validator: AppValidators.requiredText,
               ),
               const SizedBox(height: 8),
@@ -1814,9 +1800,7 @@ class _OperationsDashboardScreenState
                 controller: _customerPhoneController,
                 enabled: !operationsDisabled,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'ط±ظ‚ظ… ظ‡ط§طھظپ ط§ظ„ط¹ظ…ظٹظ„',
-                ),
+                decoration: const InputDecoration(labelText: 'رقم هاتف العميل'),
                 validator: AppValidators.requiredText,
               ),
               const SizedBox(height: 8),
@@ -1827,7 +1811,7 @@ class _OperationsDashboardScreenState
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
-                  labelText: 'ظ†ط³ط¨ط© ط±ط¨ط­ ط§ظ„طµط±ظپ %',
+                  labelText: 'نسبة ربح الصرف %',
                 ),
                 validator: AppValidators.percent,
               ),
@@ -1836,7 +1820,7 @@ class _OperationsDashboardScreenState
             TextFormField(
               controller: _noteController,
               enabled: !operationsDisabled,
-              decoration: const InputDecoration(labelText: 'ظ…ظ„ط§ط­ط¸ط©'),
+              decoration: const InputDecoration(labelText: 'ملاحظة'),
               maxLength: 160,
             ),
             const SizedBox(height: 10),
@@ -2018,23 +2002,23 @@ class _OperationsDashboardScreenState
   Widget _buildPendingSection() {
     if (!_isUserActive) {
       return DashboardSectionCard(
-        title: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
-        subtitle: 'ط§ظ„ط­ط³ط§ط¨ ط؛ظٹط± ظ…ظپط¹ظ„',
+        title: 'الطلبات المعلقة',
+        subtitle: 'الحساب غير مفعل',
         icon: Icons.rule_rounded,
         child: const Text(
-          'ظ„ط§ ظٹظ…ظƒظ† ظ…ط±ط§ط¬ط¹ط© ط£ظˆ طھظ†ظپظٹط° ط§ظ„ط·ظ„ط¨ط§طھ ط£ط«ظ†ط§ط، ط¥ظ„ط؛ط§ط، ط§ظ„طھظپط¹ظٹظ„.',
+          'لا يمكن مراجعة أو تنفيذ الطلبات أثناء إلغاء التفعيل.',
         ),
       );
     }
 
     return DashboardSectionCard(
-      title: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
+      title: 'الطلبات المعلقة',
       subtitle: widget.session.role == UserRole.agent
-          ? 'ط·ظ„ط¨ط§طھ ظ…ط±طھط¨ط·ط© ط¨طµظ†ط¯ظˆظ‚ ط§ظ„ظˆظƒظٹظ„.'
-          : 'ط·ظ„ط¨ط§طھ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ط§ط¹طھظ…ط§ط¯ ط£ظˆ ط§ظ„طھظ†ظپظٹط°.',
+          ? 'طلبات مرتبطة بصندوق الوكيل.'
+          : 'طلبات بانتظار الاعتماد أو التنفيذ.',
       icon: Icons.rule_rounded,
       child: _pendingTransfers.isEmpty
-          ? const Text('ظ„ط§ طھظˆط¬ط¯ ط·ظ„ط¨ط§طھ ظ…ط¹ظ„ظ‚ط© ط­ط§ظ„ظٹط§ظ‹.')
+          ? const Text('لا توجد طلبات معلقة حالياً.')
           : Column(
               children: _pendingTransfers.map((transfer) {
                 final busy = _actingTransferId == transfer.id;
@@ -2058,19 +2042,19 @@ class _OperationsDashboardScreenState
 
   Widget _buildTransfersSection() {
     return DashboardSectionCard(
-      title: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
-      subtitle: 'ط§ظ„ط¹ظ…ظ„ظٹط§طھ ط¶ظ…ظ† ط§ظ„طھط§ط±ظٹط® ط§ظ„ظ…ط­ط¯ط¯.',
+      title: 'سجل التحويلات',
+      subtitle: 'العمليات ضمن التاريخ المحدد.',
       icon: Icons.history_rounded,
       child: Column(
         children: [
           _buildDateFilterControls(),
           const SizedBox(height: 8),
-          _buildPrintButton(label: 'ط·ط¨ط§ط¹ط© ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ PDF'),
+          _buildPrintButton(label: 'طباعة سجل التحويلات PDF'),
           const SizedBox(height: 10),
           if (_transfers.isEmpty)
             const Align(
               alignment: Alignment.centerRight,
-              child: Text('ظ„ط§ ظٹظˆط¬ط¯ ط³ط¬ظ„ ط¹ظ…ظ„ظٹط§طھ.'),
+              child: Text('لا يوجد سجل عمليات.'),
             )
           else
             Column(
@@ -2088,11 +2072,11 @@ class _OperationsDashboardScreenState
 
   Widget _buildDailyReportSection() {
     return DashboardSectionCard(
-      title: 'ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ظٹظˆظ…ظٹط©',
-      subtitle: 'ط¥ط¬ظ…ط§ظ„ظٹط§طھ ظƒظ„ ظٹظˆظ…',
+      title: 'التقارير اليومية',
+      subtitle: 'إجماليات كل يوم',
       icon: Icons.bar_chart_rounded,
       child: _dailyReport.isEmpty
-          ? const Text('ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ ظٹظˆظ…ظٹط©.')
+          ? const Text('لا توجد بيانات يومية.')
           : Column(
               children: _dailyReport
                   .map(
@@ -2101,7 +2085,7 @@ class _OperationsDashboardScreenState
                       contentPadding: EdgeInsets.zero,
                       title: Text(row.date),
                       subtitle: Text(
-                        'ط§ظ„ط¹ظ…ظ„ظٹط§طھ: ${row.transfersCount} - ط§ظ„ظ…ظƒطھظ…ظ„ط©: ${row.completedCount} - ط§ظ„ظ…ط¹ظ„ظ‚ط©: ${row.pendingCount}',
+                        'العمليات: ${row.transfersCount} - المكتملة: ${row.completedCount} - المعلقة: ${row.pendingCount}',
                       ),
                       trailing: Text(
                         moneyText(row.totalAmount),
@@ -2114,7 +2098,7 @@ class _OperationsDashboardScreenState
     );
   }
 
-  Widget _buildPrintButton({String label = 'ط·ط¨ط§ط¹ط© ط§ظ„طھظ‚ط±ظٹط± PDF'}) {
+  Widget _buildPrintButton({String label = 'طباعة التقرير PDF'}) {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
@@ -2129,8 +2113,8 @@ class _OperationsDashboardScreenState
     return Column(
       children: [
         DashboardSectionCard(
-          title: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
-          subtitle: 'ط¨ط­ط« ط¨ط§ظ„طھط§ط±ظٹط® ظˆط·ط¨ط§ط¹ط© PDF',
+          title: 'التقارير',
+          subtitle: 'بحث بالتاريخ وطباعة PDF',
           icon: Icons.bar_chart_rounded,
           child: Column(
             children: [
@@ -2148,8 +2132,8 @@ class _OperationsDashboardScreenState
 
   Widget _buildSettingsSection() {
     return DashboardSectionCard(
-      title: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ط­ط³ط§ط¨',
-      subtitle: 'ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ…ط³طھط®ط¯ظ… ظˆط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„ط§طھطµط§ظ„',
+      title: 'معلومات الحساب',
+      subtitle: 'بيانات المستخدم وإعدادات الاتصال',
       icon: Icons.settings_rounded,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2173,9 +2157,7 @@ class _OperationsDashboardScreenState
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
-              _isUserActive
-                  ? 'ط§ظ„ط­ط³ط§ط¨: ظ…ظپط¹ظ„'
-                  : 'ط§ظ„ط­ط³ط§ط¨: ط؛ظٹط± ظ…ظپط¹ظ„',
+              _isUserActive ? 'الحساب: مفعل' : 'الحساب: غير مفعل',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 color: _isUserActive
@@ -2186,7 +2168,7 @@ class _OperationsDashboardScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            'ظ†ظˆط¹ ط§ظ„ط¹ظ…ظ„ظٹط© ط§ظ„ط§ظپطھط±ط§ط¶ظٹ',
+            'نوع العملية الافتراضي',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 6),
