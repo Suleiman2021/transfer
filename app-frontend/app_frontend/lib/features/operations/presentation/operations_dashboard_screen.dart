@@ -174,48 +174,38 @@ class _OperationsDashboardScreenState
     }
   }
 
-  List<String> get _availableByNameOperationTypes {
+  String _inferByNameOperationType(CashboxModel? counterparty) {
     if (widget.session.role == UserRole.agent) {
-      return const ['topup'];
+      return 'topup';
     }
-    return const ['network_transfer', 'topup', 'collection'];
+    if (counterparty != null && counterparty.isAgent) {
+      return 'collection';
+    }
+    return 'network_transfer';
   }
 
   List<CashboxModel> get _byNameOwnCashboxOptions {
-    switch (_byNameOperationType) {
-      case 'topup':
-      case 'network_transfer':
-      case 'collection':
-        return widget.session.role == UserRole.agent
-            ? _myAgentCashboxes
-            : _myAccreditedCashboxes;
-      default:
-        return const [];
-    }
+    return widget.session.role == UserRole.agent
+        ? _myAgentCashboxes
+        : _myAccreditedCashboxes;
   }
 
   List<CashboxModel> get _byNameCounterpartyOptions {
     final term = _byNameUserSearchController.text.trim().toLowerCase();
     late final List<CashboxModel> base;
-    switch (_byNameOperationType) {
-      case 'topup':
-        base = widget.session.role == UserRole.agent
-            ? _allAccreditedCashboxes
-            : _cashboxes.where((cashbox) => cashbox.isAgent).toList();
-        break;
-      case 'network_transfer':
-        final ownIds = _myAccreditedCashboxes
-            .map((cashbox) => cashbox.id)
-            .toSet();
-        base = _allAccreditedCashboxes
-            .where((cashbox) => !ownIds.contains(cashbox.id))
-            .toList();
-        break;
-      case 'collection':
-        base = _cashboxes.where((cashbox) => cashbox.isAgent).toList();
-        break;
-      default:
-        base = const <CashboxModel>[];
+    if (widget.session.role == UserRole.agent) {
+      base = _allAccreditedCashboxes;
+    } else {
+      final ownIds = _myAccreditedCashboxes
+          .map((cashbox) => cashbox.id)
+          .toSet();
+      final accreditedTargets = _allAccreditedCashboxes
+          .where((cashbox) => !ownIds.contains(cashbox.id))
+          .toList();
+      final agentTargets = _cashboxes
+          .where((cashbox) => cashbox.isAgent)
+          .toList();
+      base = [...accreditedTargets, ...agentTargets];
     }
     if (term.isEmpty) return base;
     return base.where((cashbox) {
@@ -419,6 +409,9 @@ class _OperationsDashboardScreenState
           ? null
           : counterpartyOptions.first.id;
     }
+    _byNameOperationType = _inferByNameOperationType(
+      _byNameSelectedCounterparty,
+    );
   }
 
   CashboxModel? _cashboxById(String? id) {
@@ -1011,8 +1004,11 @@ class _OperationsDashboardScreenState
     final ownCashboxId = _byNameOwnCashboxId;
     final counterpartyCashboxId = _byNameCounterpartyCashboxId;
     if (ownCashboxId == null || counterpartyCashboxId == null) return null;
+    final operationType = _inferByNameOperationType(
+      _byNameSelectedCounterparty,
+    );
 
-    switch (_byNameOperationType) {
+    switch (operationType) {
       case 'network_transfer':
         return _ByNameTransferRoute(
           operationType: 'network_transfer',
@@ -1849,25 +1845,6 @@ class _OperationsDashboardScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: _availableByNameOperationTypes.map((type) {
-              return ChoiceChip(
-                label: Text(_operationLabel(type)),
-                selected: _byNameOperationType == type,
-                onSelected: operationsDisabled
-                    ? null
-                    : (_) {
-                        _setViewState(() {
-                          _byNameOperationType = type;
-                          _syncByNameSelections();
-                        });
-                      },
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
           TextFormField(
             controller: _byNameUserSearchController,
             enabled: !operationsDisabled,
@@ -1899,8 +1876,10 @@ class _OperationsDashboardScreenState
                 .toList(),
             onChanged: operationsDisabled
                 ? null
-                : (value) =>
-                      _setViewState(() => _byNameCounterpartyCashboxId = value),
+                : (value) => _setViewState(() {
+                    _byNameCounterpartyCashboxId = value;
+                    _syncByNameSelections();
+                  }),
           ),
           if (_byNameCounterpartyOptions.isEmpty)
             const Padding(
@@ -1913,6 +1892,13 @@ class _OperationsDashboardScreenState
                 ),
               ),
             ),
+          const SizedBox(height: 8),
+          InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'العملية المحددة تلقائيًا',
+            ),
+            child: Text(_operationLabel(_byNameOperationType)),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue:
@@ -1953,6 +1939,9 @@ class _OperationsDashboardScreenState
                 spacing: 10,
                 runSpacing: 6,
                 children: [
+                  Text(
+                    'العملية المحددة تلقائيًا: ${_operationLabel(_byNameOperationType)}',
+                  ),
                   Text(
                     'الاسم: ${selectedCounterparty.managerName ?? 'غير محدد'}',
                   ),

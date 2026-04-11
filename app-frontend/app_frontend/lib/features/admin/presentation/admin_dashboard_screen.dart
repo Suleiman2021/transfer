@@ -194,44 +194,23 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     return null;
   }
 
-  UserRole _routeTargetRoleFor(String routeType) {
-    switch (routeType) {
-      case 'topup':
-      case 'collection':
-        return UserRole.accredited;
-      case 'agent_funding':
-      case 'agent_collection':
-        return UserRole.agent;
-      default:
-        return UserRole.unknown;
-    }
-  }
-
-  String _routeTargetCashboxTypeFor(String routeType) {
-    switch (routeType) {
-      case 'topup':
-      case 'collection':
-        return 'accredited';
-      case 'agent_funding':
-      case 'agent_collection':
-        return 'agent';
-      default:
-        return '';
-    }
+  String _routeByNameAutoTypeForUser(AppUser user) {
+    return user.role == UserRole.agent ? 'agent_funding' : 'topup';
   }
 
   List<AppUser> get _routeByNameUserOptions {
-    final role = _routeTargetRoleFor(_routeByNameType);
-    final cashboxType = _routeTargetCashboxTypeFor(_routeByNameType);
     final term = _routeByNameSearch.text.trim().toLowerCase();
     return _users.where((user) {
       if (!user.isActive) return false;
-      if (user.role != role) return false;
+      if (user.role != UserRole.accredited && user.role != UserRole.agent) {
+        return false;
+      }
+      final expectedType = user.role == UserRole.agent ? 'agent' : 'accredited';
       final hasManagedCashbox = _cashboxes.any(
         (cashbox) =>
             cashbox.isActive &&
             cashbox.managerUserId == user.id &&
-            cashbox.type == cashboxType,
+            cashbox.type == expectedType,
       );
       if (!hasManagedCashbox) return false;
       if (term.isEmpty) return true;
@@ -252,9 +231,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   List<CashboxModel> get _routeByNameCashboxOptions {
-    final userId = _routeByNameUserId;
+    final selectedUser = _routeByNameSelectedUser;
+    final userId = selectedUser?.id;
     if (userId == null) return const [];
-    final expectedType = _routeTargetCashboxTypeFor(_routeByNameType);
+    final expectedType = selectedUser!.role == UserRole.agent
+        ? 'agent'
+        : 'accredited';
     return _cashboxes.where((cashbox) {
       return cashbox.isActive &&
           cashbox.managerUserId == userId &&
@@ -320,6 +302,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _routeByNameUserId = _routeByNameUserOptions.isEmpty
           ? null
           : _routeByNameUserOptions.first.id;
+    }
+    final selectedUser = _routeByNameSelectedUser;
+    if (selectedUser != null) {
+      _routeByNameType = _routeByNameAutoTypeForUser(selectedUser);
     }
 
     if (!_routeByNameCashboxOptions.any(
@@ -2255,29 +2241,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       subtitle: 'ابحث عن اسم المستخدم، وسيتم تحديد صندوقه تلقائيًا',
       child: Column(
         children: [
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final option in const [
-                ('topup', 'تعبئة معتمد'),
-                ('collection', 'تحصيل من معتمد'),
-                ('agent_funding', 'تمويل وكيل'),
-                ('agent_collection', 'تحصيل من وكيل'),
-              ])
-                ChoiceChip(
-                  label: Text(option.$2),
-                  selected: _routeByNameType == option.$1,
-                  onSelected: (_) => _setViewState(() {
-                    _routeByNameType = option.$1;
-                    _routeByNameCommissionManuallyEdited = false;
-                    _syncRouteByNameSelection();
-                    _applyDefaultRouteByNameCommissionPercent(force: true);
-                  }),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
           TextFormField(
             controller: _routeByNameSearch,
             decoration: const InputDecoration(
@@ -2317,7 +2280,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               child: Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  'لا توجد نتائج مطابقة لبحث الاسم ضمن نوع العملية الحالي.',
+                  'لا توجد نتائج مطابقة لبحث الاسم.',
                   style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                 ),
               ),
@@ -2338,6 +2301,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 spacing: 10,
                 runSpacing: 6,
                 children: [
+                  Text(
+                    'العملية المحددة تلقائيًا: ${transferTypeLabelAr(_routeByNameType)}',
+                  ),
                   Text('الاسم: ${selectedUser.fullName}'),
                   Text('المعرف: @${selectedUser.username}'),
                   Text('الدور: ${roleLabelAr(selectedUser.role)}'),
