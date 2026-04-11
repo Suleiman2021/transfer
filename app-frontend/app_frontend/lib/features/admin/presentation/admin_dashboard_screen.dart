@@ -72,6 +72,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   String _routeType = 'topup';
   String? _routeTargetCashboxId;
   bool _routeCommissionManuallyEdited = false;
+  final _routeByNameSearch = TextEditingController();
+  final _routeByNameAmount = TextEditingController();
+  final _routeByNameNote = TextEditingController();
+  final _routeByNameCommissionPercent = TextEditingController(text: '0');
+  String _routeByNameType = 'topup';
+  String? _routeByNameUserId;
+  String? _routeByNameCashboxId;
+  bool _routeByNameCommissionManuallyEdited = false;
 
   final _accreditedInternal = TextEditingController();
   final _accreditedExternal = TextEditingController();
@@ -109,6 +117,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     _routeAmount.dispose();
     _routeNote.dispose();
     _routeCommissionPercent.dispose();
+    _routeByNameSearch.dispose();
+    _routeByNameAmount.dispose();
+    _routeByNameNote.dispose();
+    _routeByNameCommissionPercent.dispose();
     _accreditedInternal.dispose();
     _accreditedExternal.dispose();
     _agentInternal.dispose();
@@ -182,6 +194,83 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     return null;
   }
 
+  UserRole _routeTargetRoleFor(String routeType) {
+    switch (routeType) {
+      case 'topup':
+      case 'collection':
+        return UserRole.accredited;
+      case 'agent_funding':
+      case 'agent_collection':
+        return UserRole.agent;
+      default:
+        return UserRole.unknown;
+    }
+  }
+
+  String _routeTargetCashboxTypeFor(String routeType) {
+    switch (routeType) {
+      case 'topup':
+      case 'collection':
+        return 'accredited';
+      case 'agent_funding':
+      case 'agent_collection':
+        return 'agent';
+      default:
+        return '';
+    }
+  }
+
+  List<AppUser> get _routeByNameUserOptions {
+    final role = _routeTargetRoleFor(_routeByNameType);
+    final cashboxType = _routeTargetCashboxTypeFor(_routeByNameType);
+    final term = _routeByNameSearch.text.trim().toLowerCase();
+    return _users.where((user) {
+      if (!user.isActive) return false;
+      if (user.role != role) return false;
+      final hasManagedCashbox = _cashboxes.any(
+        (cashbox) =>
+            cashbox.isActive &&
+            cashbox.managerUserId == user.id &&
+            cashbox.type == cashboxType,
+      );
+      if (!hasManagedCashbox) return false;
+      if (term.isEmpty) return true;
+      final haystack =
+          '${user.fullName} ${user.username} ${user.city} ${user.country}'
+              .toLowerCase();
+      return haystack.contains(term);
+    }).toList();
+  }
+
+  AppUser? get _routeByNameSelectedUser {
+    final userId = _routeByNameUserId;
+    if (userId == null) return null;
+    for (final user in _users) {
+      if (user.id == userId) return user;
+    }
+    return null;
+  }
+
+  List<CashboxModel> get _routeByNameCashboxOptions {
+    final userId = _routeByNameUserId;
+    if (userId == null) return const [];
+    final expectedType = _routeTargetCashboxTypeFor(_routeByNameType);
+    return _cashboxes.where((cashbox) {
+      return cashbox.isActive &&
+          cashbox.managerUserId == userId &&
+          cashbox.type == expectedType;
+    }).toList();
+  }
+
+  CashboxModel? get _routeByNameCashbox {
+    final cashboxId = _routeByNameCashboxId;
+    if (cashboxId == null) return null;
+    for (final cashbox in _cashboxes) {
+      if (cashbox.id == cashboxId) return cashbox;
+    }
+    return null;
+  }
+
   double _parseNumber(String? value) {
     final raw = (value ?? '').trim().replaceAll(',', '.');
     return double.tryParse(raw) ?? 0;
@@ -190,12 +279,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   double _round2(double value) => double.parse(value.toStringAsFixed(2));
   String _fmt2(double value) => value.toStringAsFixed(2);
 
-  double _defaultRouteCommissionPercent() {
-    final treasury = _treasury;
-    final target = _routeTargetCashbox;
-    if (treasury == null || target == null) return 0;
-
-    switch (_routeType) {
+  double _defaultRouteCommissionPercentForType(String routeType) {
+    switch (routeType) {
       case 'topup':
         return _parseNumber(_treasuryToAccreditedFee.text);
       case 'agent_funding':
@@ -209,26 +294,64 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
   }
 
+  double _defaultRouteCommissionPercent() {
+    final treasury = _treasury;
+    final target = _routeTargetCashbox;
+    if (treasury == null || target == null) return 0;
+    return _defaultRouteCommissionPercentForType(_routeType);
+  }
+
   void _applyDefaultRouteCommissionPercent({bool force = false}) {
     if (force || !_routeCommissionManuallyEdited) {
       _routeCommissionPercent.text = _fmt2(_defaultRouteCommissionPercent());
     }
   }
 
-  _AdminRoutePreview _buildRoutePreview() {
-    final treasury = _treasury;
-    final target = _routeTargetCashbox;
-    final requestedAmount = _round2(_parseNumber(_routeAmount.text));
-    final commissionPercent = _round2(
-      _parseNumber(_routeCommissionPercent.text),
-    );
-    final splitInput = _routeType == 'topup' || _routeType == 'agent_funding';
+  void _applyDefaultRouteByNameCommissionPercent({bool force = false}) {
+    if (force || !_routeByNameCommissionManuallyEdited) {
+      _routeByNameCommissionPercent.text = _fmt2(
+        _defaultRouteCommissionPercentForType(_routeByNameType),
+      );
+    }
+  }
 
-    final sourceName = (_routeType == 'topup' || _routeType == 'agent_funding')
+  void _syncRouteByNameSelection() {
+    if (!_routeByNameUserOptions.any((user) => user.id == _routeByNameUserId)) {
+      _routeByNameUserId = _routeByNameUserOptions.isEmpty
+          ? null
+          : _routeByNameUserOptions.first.id;
+    }
+
+    if (!_routeByNameCashboxOptions.any(
+      (cashbox) => cashbox.id == _routeByNameCashboxId,
+    )) {
+      _routeByNameCashboxId = _routeByNameCashboxOptions.isEmpty
+          ? null
+          : _routeByNameCashboxOptions.first.id;
+    }
+
+    _applyDefaultRouteByNameCommissionPercent();
+  }
+
+  _AdminRoutePreview _buildRoutePreviewFor({
+    required String routeType,
+    required String? targetCashboxId,
+    required String amountText,
+    required String commissionPercentText,
+  }) {
+    final treasury = _treasury;
+    final target = _cashboxes
+        .where((cashbox) => cashbox.id == targetCashboxId)
+        .firstOrNull;
+    final requestedAmount = _round2(_parseNumber(amountText));
+    final commissionPercent = _round2(_parseNumber(commissionPercentText));
+    final splitInput = routeType == 'topup' || routeType == 'agent_funding';
+
+    final sourceName = (routeType == 'topup' || routeType == 'agent_funding')
         ? (treasury?.name ?? '-')
         : (target?.name ?? '-');
     final destinationName =
-        (_routeType == 'topup' || _routeType == 'agent_funding')
+        (routeType == 'topup' || routeType == 'agent_funding')
         ? (target?.name ?? '-')
         : (treasury?.name ?? '-');
 
@@ -253,7 +376,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
 
     return _AdminRoutePreview(
-      operationLabel: transferTypeLabelAr(_routeType),
+      operationLabel: transferTypeLabelAr(routeType),
       sourceName: sourceName,
       destinationName: destinationName,
       requestedAmount: requestedAmount,
@@ -265,6 +388,39 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  _AdminRoutePreview _buildRoutePreview() {
+    return _buildRoutePreviewFor(
+      routeType: _routeType,
+      targetCashboxId: _routeTargetCashboxId,
+      amountText: _routeAmount.text,
+      commissionPercentText: _routeCommissionPercent.text,
+    );
+  }
+
+  _AdminRouteResolution? _resolveRouteEndpoints(
+    String routeType,
+    String? targetCashboxId,
+  ) {
+    final treasury = _treasury;
+    if (treasury == null || targetCashboxId == null) return null;
+    switch (routeType) {
+      case 'topup':
+      case 'agent_funding':
+        return _AdminRouteResolution(
+          fromCashboxId: treasury.id,
+          toCashboxId: targetCashboxId,
+        );
+      case 'collection':
+      case 'agent_collection':
+        return _AdminRouteResolution(
+          fromCashboxId: targetCashboxId,
+          toCashboxId: treasury.id,
+        );
+      default:
+        return null;
+    }
+  }
+
   Future<bool> _confirmRoutePreview(_AdminRoutePreview preview) async {
     FocusScope.of(context).unfocus();
     final approved = await showDialog<bool>(
@@ -273,32 +429,32 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            title: const Text('تأكيد تنفيذ الحوالة'),
+            title: const Text('طھط£ظƒظٹط¯ طھظ†ظپظٹط° ط§ظ„ط­ظˆط§ظ„ط©'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _routePreviewLine('العملية', preview.operationLabel),
-                  _routePreviewLine('من', preview.sourceName),
-                  _routePreviewLine('إلى', preview.destinationName),
+                  _routePreviewLine('ط§ظ„ط¹ظ…ظ„ظٹط©', preview.operationLabel),
+                  _routePreviewLine('ظ…ظ†', preview.sourceName),
+                  _routePreviewLine('ط¥ظ„ظ‰', preview.destinationName),
                   const Divider(height: 18),
                   _routePreviewLine(
                     preview.splitInput
-                        ? 'المبلغ الإجمالي المدخل'
-                        : 'المبلغ المدخل',
+                        ? 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ط®ظ„'
+                        : 'ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ…ط¯ط®ظ„',
                     moneyText(preview.requestedAmount),
                   ),
                   _routePreviewLine(
-                    'عمولة الخزنة',
+                    'ط¹ظ…ظˆظ„ط© ط§ظ„ط®ط²ظ†ط©',
                     '${moneyText(preview.commissionAmount)} (${_fmt2(preview.commissionPercent)}%)',
                   ),
                   _routePreviewLine(
-                    'الخصم من رصيد المرسل',
+                    'ط§ظ„ط®طµظ… ظ…ظ† ط±طµظٹط¯ ط§ظ„ظ…ط±ط³ظ„',
                     moneyText(preview.senderDeduction),
                   ),
                   _routePreviewLine(
-                    'الصافي الواصل للمستلم',
+                    'ط§ظ„طµط§ظپظٹ ط§ظ„ظˆط§طµظ„ ظ„ظ„ظ…ط³طھظ„ظ…',
                     moneyText(preview.recipientCredit),
                     emphasize: true,
                   ),
@@ -308,11 +464,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('إلغاء'),
+                child: const Text('ط¥ظ„ط؛ط§ط،'),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('تأكيد التنفيذ'),
+                child: const Text('طھط£ظƒظٹط¯ ط§ظ„طھظ†ظپظٹط°'),
               ),
             ],
           ),
@@ -400,7 +556,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   String _dateText(DateTime? value) {
-    if (value == null) return 'غير محدد';
+    if (value == null) return 'ط؛ظٹط± ظ…ط­ط¯ط¯';
     final y = value.year.toString().padLeft(4, '0');
     final m = value.month.toString().padLeft(2, '0');
     final d = value.day.toString().padLeft(2, '0');
@@ -558,6 +714,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               : _routeTargets.first.id;
         }
         _applyDefaultRouteCommissionPercent(force: true);
+        _syncRouteByNameSelection();
       });
       _bumpRevision();
     } catch (error) {
@@ -576,19 +733,19 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   String _friendlyLoadError(Object error) {
     final raw = error.toString().replaceFirst('ApiException:', '').trim();
     final text = raw.toLowerCase();
-    if (text.contains('تعذر الوصول') ||
+    if (text.contains('طھط¹ط°ط± ط§ظ„ظˆطµظˆظ„') ||
         text.contains('failed host lookup') ||
         text.contains('socket') ||
         text.contains('connection') ||
         text.contains('timeout') ||
-        text.contains('مهلة')) {
-      return 'تعذر الاتصال بالشبكة أو الخادم. تحقق من الإنترنت ورابط API ثم أعد المحاولة.';
+        text.contains('ظ…ظ‡ظ„ط©')) {
+      return 'طھط¹ط°ط± ط§ظ„ط§طھطµط§ظ„ ط¨ط§ظ„ط´ط¨ظƒط© ط£ظˆ ط§ظ„ط®ط§ط¯ظ…. طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ط¥ظ†طھط±ظ†طھ ظˆط±ط§ط¨ط· API ط«ظ… ط£ط¹ط¯ ط§ظ„ظ…ط­ط§ظˆظ„ط©.';
     }
     if (text.contains('401') || text.contains('403')) {
-      return 'تعذر تحميل بيانات الأدمن بسبب صلاحيات الوصول. سجّل الدخول مجددًا.';
+      return 'طھط¹ط°ط± طھط­ظ…ظٹظ„ ط¨ظٹط§ظ†ط§طھ ط§ظ„ط£ط¯ظ…ظ† ط¨ط³ط¨ط¨ طµظ„ط§ط­ظٹط§طھ ط§ظ„ظˆطµظˆظ„. ط³ط¬ظ‘ظ„ ط§ظ„ط¯ط®ظˆظ„ ظ…ط¬ط¯ط¯ظ‹ط§.';
     }
     if (raw.isEmpty) {
-      return 'حدث خطأ غير متوقع أثناء تحميل البيانات.';
+      return 'ط­ط¯ط« ط®ط·ط£ ط؛ظٹط± ظ…طھظˆظ‚ط¹ ط£ط«ظ†ط§ط، طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ.';
     }
     return raw;
   }
@@ -627,7 +784,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _uFullName.clear();
       _uCity.clear();
       _uPassword.clear();
-      _showSuccess('تم إنشاء المستخدم بنجاح');
+      _showSuccess('طھظ… ط¥ظ†ط´ط§ط، ط§ظ„ظ…ط³طھط®ط¯ظ… ط¨ظ†ط¬ط§ط­');
       await _loadData();
       _closeInputSectionIfOpen();
     } catch (error) {
@@ -640,7 +797,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     try {
       await _api.deactivateUser(token: widget.session.token, userId: user.id);
       _showSuccess(
-        'تم إلغاء تفعيل المستخدم مع الإبقاء على كل السجلات المالية.',
+        'طھظ… ط¥ظ„ط؛ط§ط، طھظپط¹ظٹظ„ ط§ظ„ظ…ط³طھط®ط¯ظ… ظ…ط¹ ط§ظ„ط¥ط¨ظ‚ط§ط، ط¹ظ„ظ‰ ظƒظ„ ط§ظ„ط³ط¬ظ„ط§طھ ط§ظ„ظ…ط§ظ„ظٹط©.',
       );
       await _loadData();
     } catch (error) {
@@ -656,18 +813,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final approved = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('إلغاء تفعيل المستخدم'),
+        title: const Text('ط¥ظ„ط؛ط§ط، طھظپط¹ظٹظ„ ط§ظ„ظ…ط³طھط®ط¯ظ…'),
         content: Text(
-          'سيتم إلغاء تفعيل حساب ${user.fullName} دون حذف سجلاته أو حركته المالية. هل تريد المتابعة؟',
+          'ط³ظٹطھظ… ط¥ظ„ط؛ط§ط، طھظپط¹ظٹظ„ ط­ط³ط§ط¨ ${user.fullName} ط¯ظˆظ† ط­ط°ظپ ط³ط¬ظ„ط§طھظ‡ ط£ظˆ ط­ط±ظƒطھظ‡ ط§ظ„ظ…ط§ظ„ظٹط©. ظ‡ظ„ طھط±ظٹط¯ ط§ظ„ظ…طھط§ط¨ط¹ط©طں',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
+            child: const Text('ط¥ظ„ط؛ط§ط،'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('إلغاء التفعيل'),
+            child: const Text('ط¥ظ„ط؛ط§ط، ط§ظ„طھظپط¹ظٹظ„'),
           ),
         ],
       ),
@@ -681,7 +838,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     _setViewState(() => _activatingUserId = user.id);
     try {
       await _api.activateUser(token: widget.session.token, userId: user.id);
-      _showSuccess('تمت إعادة تفعيل المستخدم بنجاح.');
+      _showSuccess('طھظ…طھ ط¥ط¹ط§ط¯ط© طھظپط¹ظٹظ„ ط§ظ„ظ…ط³طھط®ط¯ظ… ط¨ظ†ط¬ط§ط­.');
       await _loadData();
     } catch (error) {
       _showError(error.toString());
@@ -696,18 +853,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final approved = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('إعادة تفعيل المستخدم'),
+        title: const Text('ط¥ط¹ط§ط¯ط© طھظپط¹ظٹظ„ ط§ظ„ظ…ط³طھط®ط¯ظ…'),
         content: Text(
-          'سيتم إعادة تفعيل حساب ${user.fullName}. هل تريد المتابعة؟',
+          'ط³ظٹطھظ… ط¥ط¹ط§ط¯ط© طھظپط¹ظٹظ„ ط­ط³ط§ط¨ ${user.fullName}. ظ‡ظ„ طھط±ظٹط¯ ط§ظ„ظ…طھط§ط¨ط¹ط©طں',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
+            child: const Text('ط¥ظ„ط؛ط§ط،'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('تفعيل'),
+            child: const Text('طھظپط¹ظٹظ„'),
           ),
         ],
       ),
@@ -724,7 +881,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         ? _cManagerId
         : null;
     if (_cType != 'treasury' && validManagerId == null) {
-      _showError('اختر مسؤولًا مطابقًا للدور المحدد.');
+      _showError(
+        'ط§ط®طھط± ظ…ط³ط¤ظˆظ„ظ‹ط§ ظ…ط·ط§ط¨ظ‚ظ‹ط§ ظ„ظ„ط¯ظˆط± ط§ظ„ظ…ط­ط¯ط¯.',
+      );
       return;
     }
     try {
@@ -741,7 +900,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _cCity.clear();
       _cOpening.text = '0';
       _setViewState(() => _cManagerId = null);
-      _showSuccess('تم إنشاء الصندوق بنجاح');
+      _showSuccess('طھظ… ط¥ظ†ط´ط§ط، ط§ظ„طµظ†ط¯ظˆظ‚ ط¨ظ†ط¬ط§ط­');
       await _loadData();
       _closeInputSectionIfOpen();
     } catch (error) {
@@ -800,7 +959,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         treasuryCollectionFromAgentFeePercent:
             _treasuryCollectionFromAgentFee.text,
       );
-      _showSuccess('تم حفظ العمولات');
+      _showSuccess('طھظ… ط­ظپط¸ ط§ظ„ط¹ظ…ظˆظ„ط§طھ');
       await _loadData();
     } catch (error) {
       _showError(error.toString());
@@ -809,32 +968,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Future<void> _createTreasuryRoute() async {
     if (_treasury == null) {
-      return _showError('الخزنة غير متوفرة');
+      return _showError('ط§ظ„ط®ط²ظ†ط© ط؛ظٹط± ظ…طھظˆظپط±ط©');
     }
     if (_routeTargetCashboxId == null) {
-      return _showError('اختر الصندوق الهدف أولاً');
+      return _showError('ط§ط®طھط± ط§ظ„طµظ†ط¯ظˆظ‚ ط§ظ„ظ‡ط¯ظپ ط£ظˆظ„ط§ظ‹');
     }
     final amountError = AppValidators.amount(_routeAmount.text);
     if (amountError != null) return _showError(amountError);
     final commissionError = AppValidators.percent(_routeCommissionPercent.text);
     if (commissionError != null) return _showError(commissionError);
-
-    late final String fromCashboxId;
-    late final String toCashboxId;
-
-    switch (_routeType) {
-      case 'topup':
-      case 'agent_funding':
-        fromCashboxId = _treasury!.id;
-        toCashboxId = _routeTargetCashboxId!;
-        break;
-      case 'collection':
-      case 'agent_collection':
-        fromCashboxId = _routeTargetCashboxId!;
-        toCashboxId = _treasury!.id;
-        break;
-      default:
-        return _showError('نوع العملية غير معروف');
+    final endpoints = _resolveRouteEndpoints(_routeType, _routeTargetCashboxId);
+    if (endpoints == null) {
+      return _showError('ظ†ظˆط¹ ط§ظ„ط¹ظ…ظ„ظٹط© ط؛ظٹط± ظ…ط¹ط±ظˆظپ');
     }
 
     final confirmed = await _confirmRoutePreview(_buildRoutePreview());
@@ -843,8 +988,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     try {
       final transfer = await _api.createTransfer(
         token: widget.session.token,
-        fromCashboxId: fromCashboxId,
-        toCashboxId: toCashboxId,
+        fromCashboxId: endpoints.fromCashboxId,
+        toCashboxId: endpoints.toCashboxId,
         amount: _routeAmount.text.trim(),
         operationType: _routeType,
         note: _routeNote.text.trim().isEmpty ? null : _routeNote.text.trim(),
@@ -854,8 +999,70 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _routeNote.clear();
       _showSuccess(
         transfer.state == 'pending_review'
-            ? 'تم إرسال الطلب بانتظار موافقة المستلم.'
-            : 'تم تنفيذ العملية بنجاح.',
+            ? 'طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط·ظ„ط¨ ط¨ط§ظ†طھط¸ط§ط± ظ…ظˆط§ظپظ‚ط© ط§ظ„ظ…ط³طھظ„ظ….'
+            : 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط© ط¨ظ†ط¬ط§ط­.',
+      );
+      await _loadData();
+      _closeInputSectionIfOpen();
+    } catch (error) {
+      _showError(error.toString());
+    }
+  }
+
+  Future<void> _createTreasuryRouteByName() async {
+    if (_treasury == null) {
+      return _showError('ط§ظ„ط®ط²ظ†ط© ط؛ظٹط± ظ…طھظˆظپط±ط©');
+    }
+    if (_routeByNameUserId == null) {
+      return _showError('ط§ط®طھط± ط§ظ„ظ…ط³طھط®ط¯ظ… ط£ظˆظ„ط§ظ‹');
+    }
+    if (_routeByNameCashboxId == null) {
+      return _showError(
+        'ظ„ظ… ظٹطھظ… طھط­ط¯ظٹط¯ طµظ†ط¯ظˆظ‚ طµط§ط­ط¨ ط§ظ„ط§ط³ظ….',
+      );
+    }
+    final amountError = AppValidators.amount(_routeByNameAmount.text);
+    if (amountError != null) return _showError(amountError);
+    final commissionError = AppValidators.percent(
+      _routeByNameCommissionPercent.text,
+    );
+    if (commissionError != null) return _showError(commissionError);
+
+    final endpoints = _resolveRouteEndpoints(
+      _routeByNameType,
+      _routeByNameCashboxId,
+    );
+    if (endpoints == null) {
+      return _showError('ظ†ظˆط¹ ط§ظ„ط¹ظ…ظ„ظٹط© ط؛ظٹط± ظ…ط¹ط±ظˆظپ');
+    }
+
+    final preview = _buildRoutePreviewFor(
+      routeType: _routeByNameType,
+      targetCashboxId: _routeByNameCashboxId,
+      amountText: _routeByNameAmount.text,
+      commissionPercentText: _routeByNameCommissionPercent.text,
+    );
+    final confirmed = await _confirmRoutePreview(preview);
+    if (!confirmed) return;
+
+    try {
+      final transfer = await _api.createTransfer(
+        token: widget.session.token,
+        fromCashboxId: endpoints.fromCashboxId,
+        toCashboxId: endpoints.toCashboxId,
+        amount: _routeByNameAmount.text.trim(),
+        operationType: _routeByNameType,
+        note: _routeByNameNote.text.trim().isEmpty
+            ? null
+            : _routeByNameNote.text.trim(),
+        commissionPercent: _routeByNameCommissionPercent.text.trim(),
+      );
+      _routeByNameAmount.clear();
+      _routeByNameNote.clear();
+      _showSuccess(
+        transfer.state == 'pending_review'
+            ? 'طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط·ظ„ط¨ ط¨ط§ظ†طھط¸ط§ط± ظ…ظˆط§ظپظ‚ط© ط§ظ„ظ…ط³طھظ„ظ….'
+            : 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¹ظ…ظ„ظٹط© ط¨ظ†ط¬ط§ط­.',
       );
       await _loadData();
       _closeInputSectionIfOpen();
@@ -871,9 +1078,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         token: widget.session.token,
         transferId: transfer.id,
         approve: approve,
-        note: approve ? 'اعتماد من المدير' : 'رفض من المدير',
+        note: approve
+            ? 'ط§ط¹طھظ…ط§ط¯ ظ…ظ† ط§ظ„ظ…ط¯ظٹط±'
+            : 'ط±ظپط¶ ظ…ظ† ط§ظ„ظ…ط¯ظٹط±',
       );
-      _showSuccess(approve ? 'تم الاعتماد' : 'تم الرفض');
+      _showSuccess(approve ? 'طھظ… ط§ظ„ط§ط¹طھظ…ط§ط¯' : 'طھظ… ط§ظ„ط±ظپط¶');
       await _loadData();
     } catch (error) {
       _showError(error.toString());
@@ -885,7 +1094,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   Future<void> _printReports() async {
     try {
       await printReportPdf(
-        title: 'تقرير المدير',
+        title: 'طھظ‚ط±ظٹط± ط§ظ„ظ…ط¯ظٹط±',
         transfers: _recentTransfers,
         dailyRows: _dailyReport,
         fromDate: _fromDate,
@@ -915,8 +1124,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           childBuilder: (sectionContext) {
             if (_loadError != null) {
               return AppLoadErrorCard(
-                title: 'تعذر تحميل بيانات القسم',
-                subtitle: 'تحقق من الشبكة ثم أعد المحاولة.',
+                title: 'طھط¹ط°ط± طھط­ظ…ظٹظ„ ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ‚ط³ظ…',
+                subtitle:
+                    'طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ط´ط¨ظƒط© ط«ظ… ط£ط¹ط¯ ط§ظ„ظ…ط­ط§ظˆظ„ط©.',
                 message: _loadError!,
                 onRetry: _loadData,
               );
@@ -957,9 +1167,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                       RevealOnMount(
                         delay: const Duration(milliseconds: 50),
                         child: AdminHeroHeader(
-                          title: 'لوحة المدير',
+                          title: 'ظ„ظˆط­ط© ط§ظ„ظ…ط¯ظٹط±',
                           subtitle:
-                              'إدارة المستخدمين، العمولات، التقارير، ومسارات الخزنة بواجهة منظمة.',
+                              'ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†طŒ ط§ظ„ط¹ظ…ظˆظ„ط§طھطŒ ط§ظ„طھظ‚ط§ط±ظٹط±طŒ ظˆظ…ط³ط§ط±ط§طھ ط§ظ„ط®ط²ظ†ط© ط¨ظˆط§ط¬ظ‡ط© ظ…ظ†ط¸ظ…ط©.',
                           userLine:
                               '${widget.session.fullName} - ${widget.session.city} / ${widget.session.country}',
                           onLogout: () => ref
@@ -970,8 +1180,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                       SizedBox(height: gap),
                       if (_loading)
                         const AdminSectionCard(
-                          title: 'جاري التحميل',
-                          subtitle: 'يتم جلب بيانات لوحة المدير الآن',
+                          title: 'ط¬ط§ط±ظٹ ط§ظ„طھط­ظ…ظٹظ„',
+                          subtitle:
+                              'ظٹطھظ… ط¬ظ„ط¨ ط¨ظٹط§ظ†ط§طھ ظ„ظˆط­ط© ط§ظ„ظ…ط¯ظٹط± ط§ظ„ط¢ظ†',
                           child: Center(
                             child: Padding(
                               padding: EdgeInsets.symmetric(vertical: 20),
@@ -983,8 +1194,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                         )
                       else if (_loadError != null)
                         AppLoadErrorCard(
-                          title: 'تعذر تحميل لوحة المدير',
-                          subtitle: 'تحقق من الاتصال ثم أعد تحميل البيانات.',
+                          title: 'طھط¹ط°ط± طھط­ظ…ظٹظ„ ظ„ظˆط­ط© ط§ظ„ظ…ط¯ظٹط±',
+                          subtitle:
+                              'طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ط§طھطµط§ظ„ ط«ظ… ط£ط¹ط¯ طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ.',
                           message: _loadError!,
                           onRetry: _loadData,
                         )
@@ -1017,9 +1229,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             SizedBox(
               width: width,
               child: AdminMetricCard(
-                label: 'المستخدمون',
+                label: 'ط§ظ„ظ…ط³طھط®ط¯ظ…ظˆظ†',
                 value: _users.length.toString(),
-                hint: 'جميع الحسابات',
+                hint: 'ط¬ظ…ظٹط¹ ط§ظ„ط­ط³ط§ط¨ط§طھ',
                 icon: Icons.people_alt_rounded,
                 accent: AppTheme.brandTeal,
               ),
@@ -1027,9 +1239,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             SizedBox(
               width: width,
               child: AdminMetricCard(
-                label: 'الصناديق',
+                label: 'ط§ظ„طµظ†ط§ط¯ظٹظ‚',
                 value: _cashboxes.length.toString(),
-                hint: 'خزنة ومعتمد ووكيل',
+                hint: 'ط®ط²ظ†ط© ظˆظ…ط¹طھظ…ط¯ ظˆظˆظƒظٹظ„',
                 icon: Icons.inventory_2_rounded,
                 accent: AppTheme.brandCoral,
               ),
@@ -1037,9 +1249,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             SizedBox(
               width: width,
               child: AdminMetricCard(
-                label: 'رصيد الشبكة',
+                label: 'ط±طµظٹط¯ ط§ظ„ط´ط¨ظƒط©',
                 value: moneyText(_networkBalance),
-                hint: 'بدون رصيد الخزنة',
+                hint: 'ط¨ط¯ظˆظ† ط±طµظٹط¯ ط§ظ„ط®ط²ظ†ط©',
                 icon: Icons.account_balance_wallet_rounded,
                 accent: AppTheme.brandGold,
               ),
@@ -1047,9 +1259,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             SizedBox(
               width: width,
               child: AdminMetricCard(
-                label: 'إيراد العمولة',
+                label: 'ط¥ظٹط±ط§ط¯ ط§ظ„ط¹ظ…ظˆظ„ط©',
                 value: moneyText(_commissionRevenue),
-                hint: 'من دليل القيود',
+                hint: 'ظ…ظ† ط¯ظ„ظٹظ„ ط§ظ„ظ‚ظٹظˆط¯',
                 icon: Icons.paid_rounded,
                 accent: AppTheme.brandPlum,
               ),
@@ -1067,55 +1279,58 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildMainGroup(
-            title: 'إدارة المستخدمين',
-            subtitle: 'كل وظيفة ضمن شاشة مستقلة عبر زر مخصص',
+            title: 'ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
+            subtitle:
+                'ظƒظ„ ظˆط¸ظٹظپط© ط¶ظ…ظ† ط´ط§ط´ط© ظ…ط³طھظ‚ظ„ط© ط¹ط¨ط± ط²ط± ظ…ط®طµطµ',
             actions: [
               _buildActionButton(
                 icon: Icons.search_rounded,
-                label: 'بحث المستخدمين',
+                label: 'ط¨ط­ط« ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
                 onTap: () => _openSection(
-                  title: 'بحث المستخدمين',
-                  subtitle: 'فلترة وبحث مع بطاقة مستخدم تفصيلية',
+                  title: 'ط¨ط­ط« ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
+                  subtitle:
+                      'ظپظ„طھط±ط© ظˆط¨ط­ط« ظ…ط¹ ط¨ط·ط§ظ‚ط© ظ…ط³طھط®ط¯ظ… طھظپطµظٹظ„ظٹط©',
                   icon: Icons.search_rounded,
                   builder: (_) => _buildUserFilterSection(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.person_add_alt_1_rounded,
-                label: 'إضافة مستخدم',
+                label: 'ط¥ط¶ط§ظپط© ظ…ط³طھط®ط¯ظ…',
                 onTap: () => _openSection(
-                  title: 'إضافة مستخدم',
-                  subtitle: 'إنشاء حساب جديد',
+                  title: 'ط¥ط¶ط§ظپط© ظ…ط³طھط®ط¯ظ…',
+                  subtitle: 'ط¥ظ†ط´ط§ط، ط­ط³ط§ط¨ ط¬ط¯ظٹط¯',
                   icon: Icons.person_add_alt_1_rounded,
                   builder: (_) => _buildUserForm(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.add_business_rounded,
-                label: 'إضافة صندوق',
+                label: 'ط¥ط¶ط§ظپط© طµظ†ط¯ظˆظ‚',
                 onTap: () => _openSection(
-                  title: 'إضافة صندوق',
-                  subtitle: 'إنشاء صندوق معتمد أو وكيل أو خزنة',
+                  title: 'ط¥ط¶ط§ظپط© طµظ†ط¯ظˆظ‚',
+                  subtitle:
+                      'ط¥ظ†ط´ط§ط، طµظ†ط¯ظˆظ‚ ظ…ط¹طھظ…ط¯ ط£ظˆ ظˆظƒظٹظ„ ط£ظˆ ط®ط²ظ†ط©',
                   icon: Icons.add_business_rounded,
                   builder: (_) => _buildCashboxForm(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.people_alt_rounded,
-                label: 'قائمة المستخدمين',
+                label: 'ظ‚ط§ط¦ظ…ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
                 onTap: () => _openSection(
-                  title: 'قائمة المستخدمين',
-                  subtitle: 'نتائج البحث والفلترة',
+                  title: 'ظ‚ط§ط¦ظ…ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
+                  subtitle: 'ظ†طھط§ط¦ط¬ ط§ظ„ط¨ط­ط« ظˆط§ظ„ظپظ„طھط±ط©',
                   icon: Icons.people_alt_rounded,
                   builder: (_) => _buildUsersList(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.account_balance_wallet_rounded,
-                label: 'قائمة الصناديق',
+                label: 'ظ‚ط§ط¦ظ…ط© ط§ظ„طµظ†ط§ط¯ظٹظ‚',
                 onTap: () => _openSection(
-                  title: 'قائمة الصناديق',
-                  subtitle: 'عرض الصناديق المسجلة',
+                  title: 'ظ‚ط§ط¦ظ…ط© ط§ظ„طµظ†ط§ط¯ظٹظ‚',
+                  subtitle: 'ط¹ط±ط¶ ط§ظ„طµظ†ط§ط¯ظٹظ‚ ط§ظ„ظ…ط³ط¬ظ„ط©',
                   icon: Icons.account_balance_wallet_rounded,
                   builder: (_) => _buildCashboxesList(),
                 ),
@@ -1124,36 +1339,49 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           ),
           const SizedBox(height: 10),
           _buildMainGroup(
-            title: 'العمليات',
-            subtitle: 'كل قسم تشغيلي بواجهة تفصيلية مستقلة',
+            title: 'ط§ظ„ط¹ظ…ظ„ظٹط§طھ',
+            subtitle:
+                'ظƒظ„ ظ‚ط³ظ… طھط´ط؛ظٹظ„ظٹ ط¨ظˆط§ط¬ظ‡ط© طھظپطµظٹظ„ظٹط© ظ…ط³طھظ‚ظ„ط©',
             actions: [
               _buildActionButton(
                 icon: Icons.account_balance_rounded,
-                label: 'مسارات الخزنة',
+                label: 'ظ…ط³ط§ط±ط§طھ ط§ظ„ط®ط²ظ†ط©',
                 onTap: () => _openSection(
-                  title: 'مسارات الخزنة',
-                  subtitle: 'تمويل وتحصيل الصناديق',
+                  title: 'ظ…ط³ط§ط±ط§طھ ط§ظ„ط®ط²ظ†ط©',
+                  subtitle: 'طھظ…ظˆظٹظ„ ظˆطھط­طµظٹظ„ ط§ظ„طµظ†ط§ط¯ظٹظ‚',
                   icon: Icons.account_balance_rounded,
                   builder: (_) => _buildTreasuryRoutesSection(),
                 ),
               ),
               _buildActionButton(
+                icon: Icons.person_search_rounded,
+                label: 'طھظ†ظپظٹط° ط­ط³ط¨ ط§ظ„ط§ط³ظ…',
+                onTap: () => _openSection(
+                  title: 'طھظ†ظپظٹط° ط­ط³ط¨ ط§ظ„ط§ط³ظ…',
+                  subtitle:
+                      'ط¨ط­ط« ط¹ظ† ط§ظ„ظ…ط³طھظ„ظ… ظˆطھظ†ظپظٹط° ظ…ط³ط§ط± ط§ظ„ط®ط²ظ†ط© ظ…ط¨ط§ط´ط±ط©',
+                  icon: Icons.person_search_rounded,
+                  builder: (_) => _buildTreasuryRouteByNameSection(),
+                ),
+              ),
+              _buildActionButton(
                 icon: Icons.pending_actions_rounded,
-                label: 'الطلبات المعلقة',
+                label: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
                 badge: _pendingTransfers.length.toString(),
                 onTap: () => _openSection(
-                  title: 'الطلبات المعلقة',
-                  subtitle: 'اعتماد أو رفض الطلبات',
+                  title: 'ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©',
+                  subtitle: 'ط§ط¹طھظ…ط§ط¯ ط£ظˆ ط±ظپط¶ ط§ظ„ط·ظ„ط¨ط§طھ',
                   icon: Icons.pending_actions_rounded,
                   builder: (_) => _buildPendingRequests(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.history_rounded,
-                label: 'سجل التحويلات',
+                label: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
                 onTap: () => _openSection(
-                  title: 'سجل التحويلات',
-                  subtitle: 'نتائج التحويلات ضمن الفترة الحالية',
+                  title: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
+                  subtitle:
+                      'ظ†طھط§ط¦ط¬ ط§ظ„طھط­ظˆظٹظ„ط§طھ ط¶ظ…ظ† ط§ظ„ظپطھط±ط© ط§ظ„ط­ط§ظ„ظٹط©',
                   icon: Icons.history_rounded,
                   builder: (_) => _buildRecentTransfers(),
                 ),
@@ -1162,45 +1390,48 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           ),
           const SizedBox(height: 10),
           _buildMainGroup(
-            title: 'التقارير والإعدادات',
-            subtitle: 'فلترة، تقارير يومية، PDF، وضبط العمولات',
+            title: 'ط§ظ„طھظ‚ط§ط±ظٹط± ظˆط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ',
+            subtitle:
+                'ظپظ„طھط±ط©طŒ طھظ‚ط§ط±ظٹط± ظٹظˆظ…ظٹط©طŒ PDFطŒ ظˆط¶ط¨ط· ط§ظ„ط¹ظ…ظˆظ„ط§طھ',
             actions: [
               _buildActionButton(
                 icon: Icons.space_dashboard_rounded,
-                label: 'مؤشرات سريعة',
+                label: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
                 onTap: () => _openSection(
-                  title: 'مؤشرات سريعة',
-                  subtitle: 'ملخص الأرقام الأساسية',
+                  title: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
+                  subtitle: 'ظ…ظ„ط®طµ ط§ظ„ط£ط±ظ‚ط§ظ… ط§ظ„ط£ط³ط§ط³ظٹط©',
                   icon: Icons.space_dashboard_rounded,
                   builder: (_) => _buildMetricsSection(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.bar_chart_rounded,
-                label: 'التقارير',
+                label: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
                 onTap: () => _openSection(
-                  title: 'التقارير',
-                  subtitle: 'بحث بالتاريخ وتقارير يومية وطباعة PDF',
+                  title: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
+                  subtitle:
+                      'ط¨ط­ط« ط¨ط§ظ„طھط§ط±ظٹط® ظˆطھظ‚ط§ط±ظٹط± ظٹظˆظ…ظٹط© ظˆط·ط¨ط§ط¹ط© PDF',
                   icon: Icons.bar_chart_rounded,
                   builder: (_) => _buildReportsSection(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.percent_rounded,
-                label: 'ضبط العمولات',
+                label: 'ط¶ط¨ط· ط§ظ„ط¹ظ…ظˆظ„ط§طھ',
                 onTap: () => _openSection(
-                  title: 'ضبط العمولات',
-                  subtitle: 'عمولات داخلية وخارجية وربح الوكيل',
+                  title: 'ط¶ط¨ط· ط§ظ„ط¹ظ…ظˆظ„ط§طھ',
+                  subtitle:
+                      'ط¹ظ…ظˆظ„ط§طھ ط¯ط§ط®ظ„ظٹط© ظˆط®ط§ط±ط¬ظٹط© ظˆط±ط¨ط­ ط§ظ„ظˆظƒظٹظ„',
                   icon: Icons.percent_rounded,
                   builder: (_) => _buildCommissionSettingsSection(),
                 ),
               ),
               _buildActionButton(
                 icon: Icons.settings_rounded,
-                label: 'معلومات النظام',
+                label: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ظ†ط¸ط§ظ…',
                 onTap: () => _openSection(
-                  title: 'معلومات النظام',
-                  subtitle: 'بيانات الحساب الحالي',
+                  title: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ظ†ط¸ط§ظ…',
+                  subtitle: 'ط¨ظٹط§ظ†ط§طھ ط§ظ„ط­ط³ط§ط¨ ط§ظ„ط­ط§ظ„ظٹ',
                   icon: Icons.settings_rounded,
                   builder: (_) => _buildSystemInfoSection(),
                 ),
@@ -1276,8 +1507,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   Widget _buildMetricsSection() => AdminSectionCard(
-    title: 'مؤشرات سريعة',
-    subtitle: 'أهم أرقام الشبكة بشكل مصغر',
+    title: 'ظ…ط¤ط´ط±ط§طھ ط³ط±ظٹط¹ط©',
+    subtitle: 'ط£ظ‡ظ… ط£ط±ظ‚ط§ظ… ط§ظ„ط´ط¨ظƒط© ط¨ط´ظƒظ„ ظ…طµط؛ط±',
     child: _buildOverviewMetrics(),
   );
 
@@ -1290,7 +1521,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               child: OutlinedButton.icon(
                 onPressed: _pickFromDate,
                 icon: const Icon(Icons.event_rounded, size: 18),
-                label: Text('من: ${_dateText(_fromDate)}'),
+                label: Text('ظ…ظ†: ${_dateText(_fromDate)}'),
               ),
             ),
             const SizedBox(width: 8),
@@ -1298,7 +1529,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               child: OutlinedButton.icon(
                 onPressed: _pickToDate,
                 icon: const Icon(Icons.event_note_rounded, size: 18),
-                label: Text('إلى: ${_dateText(_toDate)}'),
+                label: Text('ط¥ظ„ظ‰: ${_dateText(_toDate)}'),
               ),
             ),
           ],
@@ -1310,7 +1541,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               child: ElevatedButton.icon(
                 onPressed: _loadData,
                 icon: const Icon(Icons.search_rounded, size: 18),
-                label: const Text('بحث'),
+                label: const Text('ط¨ط­ط«'),
               ),
             ),
             const SizedBox(width: 8),
@@ -1324,7 +1555,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   _loadData();
                 },
                 icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('إعادة تعيين'),
+                label: const Text('ط¥ط¹ط§ط¯ط© طھط¹ظٹظٹظ†'),
               ),
             ),
           ],
@@ -1348,14 +1579,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         _buildUsersFilterCard(showSearchField: true),
         const SizedBox(height: 10),
         _buildUsersResultCard(
-          title: 'نتائج البحث',
+          title: 'ظ†طھط§ط¦ط¬ ط§ظ„ط¨ط­ط«',
           subtitle: hasAnyFilter
-              ? 'تم العثور على ${users.length} مستخدم ضمن الفلترة الحالية'
-              : 'أدخل اسمًا أو اختر دورًا أو تاريخ إضافة للبدء',
+              ? 'طھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ${users.length} ظ…ط³طھط®ط¯ظ… ط¶ظ…ظ† ط§ظ„ظپظ„طھط±ط© ط§ظ„ط­ط§ظ„ظٹط©'
+              : 'ط£ط¯ط®ظ„ ط§ط³ظ…ظ‹ط§ ط£ظˆ ط§ط®طھط± ط¯ظˆط±ظ‹ط§ ط£ظˆ طھط§ط±ظٹط® ط¥ط¶ط§ظپط© ظ„ظ„ط¨ط¯ط،',
           users: users,
           emptyText: hasAnyFilter
-              ? 'لا توجد نتائج مطابقة للفلترة الحالية.'
-              : 'اكتب نص البحث أو استخدم فلترة الدور/تاريخ الإضافة.',
+              ? 'ظ„ط§ طھظˆط¬ط¯ ظ†طھط§ط¦ط¬ ظ…ط·ط§ط¨ظ‚ط© ظ„ظ„ظپظ„طھط±ط© ط§ظ„ط­ط§ظ„ظٹط©.'
+              : 'ط§ظƒطھط¨ ظ†طµ ط§ظ„ط¨ط­ط« ط£ظˆ ط§ط³طھط®ط¯ظ… ظپظ„طھط±ط© ط§ظ„ط¯ظˆط±/طھط§ط±ظٹط® ط§ظ„ط¥ط¶ط§ظپط©.',
         ),
       ],
     );
@@ -1363,15 +1594,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildUsersFilterCard({required bool showSearchField}) {
     return AdminSectionCard(
-      title: 'بحث وفلترة المستخدمين',
-      subtitle: 'فلترة حسب الدور أو تاريخ الإضافة مع البحث النصي',
+      title: 'ط¨ط­ط« ظˆظپظ„طھط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
+      subtitle:
+          'ظپظ„طھط±ط© ط­ط³ط¨ ط§ظ„ط¯ظˆط± ط£ظˆ طھط§ط±ظٹط® ط§ظ„ط¥ط¶ط§ظپط© ظ…ط¹ ط§ظ„ط¨ط­ط« ط§ظ„ظ†طµظٹ',
       child: Column(
         children: [
           if (showSearchField) ...[
             TextField(
               controller: _userSearch,
               decoration: const InputDecoration(
-                labelText: 'بحث باسم المستخدم أو الاسم الكامل',
+                labelText:
+                    'ط¨ط­ط« ط¨ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ… ط£ظˆ ط§ظ„ط§ط³ظ… ط§ظ„ظƒط§ظ…ظ„',
                 prefixIcon: Icon(Icons.search_rounded),
               ),
             ),
@@ -1382,24 +1615,24 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             runSpacing: 8,
             children: [
               ChoiceChip(
-                label: const Text('الكل'),
+                label: const Text('ط§ظ„ظƒظ„'),
                 selected: _userFilterRole == null,
                 onSelected: (_) => _setViewState(() => _userFilterRole = null),
               ),
               ChoiceChip(
-                label: const Text('معتمد'),
+                label: const Text('ظ…ط¹طھظ…ط¯'),
                 selected: _userFilterRole == UserRole.accredited,
                 onSelected: (_) =>
                     _setViewState(() => _userFilterRole = UserRole.accredited),
               ),
               ChoiceChip(
-                label: const Text('وكيل'),
+                label: const Text('ظˆظƒظٹظ„'),
                 selected: _userFilterRole == UserRole.agent,
                 onSelected: (_) =>
                     _setViewState(() => _userFilterRole = UserRole.agent),
               ),
               ChoiceChip(
-                label: const Text('مدير'),
+                label: const Text('ظ…ط¯ظٹط±'),
                 selected: _userFilterRole == UserRole.admin,
                 onSelected: (_) =>
                     _setViewState(() => _userFilterRole = UserRole.admin),
@@ -1413,7 +1646,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _pickUserCreatedFromDate,
                   icon: const Icon(Icons.event_rounded, size: 18),
-                  label: Text('من: ${_dateText(_userCreatedFromDate)}'),
+                  label: Text('ظ…ظ†: ${_dateText(_userCreatedFromDate)}'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1421,7 +1654,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _pickUserCreatedToDate,
                   icon: const Icon(Icons.event_note_rounded, size: 18),
-                  label: Text('إلى: ${_dateText(_userCreatedToDate)}'),
+                  label: Text('ط¥ظ„ظ‰: ${_dateText(_userCreatedToDate)}'),
                 ),
               ),
             ],
@@ -1433,7 +1666,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () => _setViewState(() {}),
                   icon: const Icon(Icons.filter_alt_rounded, size: 18),
-                  label: const Text('تطبيق الفلترة'),
+                  label: const Text('طھط·ط¨ظٹظ‚ ط§ظ„ظپظ„طھط±ط©'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1441,7 +1674,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _resetUserFilters,
                   icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                  label: const Text('إعادة تعيين'),
+                  label: const Text('ط¥ط¹ط§ط¯ط© طھط¹ظٹظٹظ†'),
                 ),
               ),
             ],
@@ -1476,7 +1709,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   String _userCreatedDateText(AppUser user) {
     final date = user.createdAtDate?.toLocal();
-    if (date == null) return 'غير محدد';
+    if (date == null) return 'ط؛ظٹط± ظ…ط­ط¯ط¯';
     final y = date.year.toString().padLeft(4, '0');
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
@@ -1574,9 +1807,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   spacing: 10,
                   runSpacing: 6,
                   children: [
-                    Text('المدينة: ${user.city}'),
-                    Text('الدولة: ${user.country}'),
-                    Text('تاريخ الإضافة: ${_userCreatedDateText(user)}'),
+                    Text('ط§ظ„ظ…ط¯ظٹظ†ط©: ${user.city}'),
+                    Text('ط§ظ„ط¯ظˆظ„ط©: ${user.country}'),
+                    Text(
+                      'طھط§ط±ظٹط® ط§ظ„ط¥ط¶ط§ظپط©: ${_userCreatedDateText(user)}',
+                    ),
                     Text(
                       '\u0627\u0644\u062d\u0627\u0644\u0629: ${user.isActive ? '\u0641\u0639\u0627\u0644' : '\u063a\u064a\u0631 \u0641\u0639\u0627\u0644'}',
                     ),
@@ -1609,7 +1844,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           style: buttonStyle,
                           onPressed: () => _openUserReport(user),
                           icon: Icon(Icons.badge_rounded, size: iconSize),
-                          label: const Text('عرض كامل المعلومات'),
+                          label: const Text(
+                            'ط¹ط±ط¶ ظƒط§ظ…ظ„ ط§ظ„ظ…ط¹ظ„ظˆظ…ط§طھ',
+                          ),
                         ),
                         if (canDeactivate)
                           OutlinedButton.icon(
@@ -1621,7 +1858,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                               Icons.person_off_rounded,
                               size: iconSize,
                             ),
-                            label: const Text('إلغاء التفعيل'),
+                            label: const Text('ط¥ظ„ط؛ط§ط، ط§ظ„طھظپط¹ظٹظ„'),
                           )
                         else if (canActivate)
                           OutlinedButton.icon(
@@ -1633,7 +1870,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                               Icons.verified_user_rounded,
                               size: iconSize,
                             ),
-                            label: const Text('تفعيل'),
+                            label: const Text('طھظپط¹ظٹظ„'),
                           ),
                       ],
                     );
@@ -1647,7 +1884,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
-  Widget _buildPrintButton({String label = 'طباعة التقرير PDF'}) {
+  Widget _buildPrintButton({String label = 'ط·ط¨ط§ط¹ط© ط§ظ„طھظ‚ط±ظٹط± PDF'}) {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
@@ -1662,8 +1899,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     return Column(
       children: [
         AdminSectionCard(
-          title: 'التقارير',
-          subtitle: 'بحث بالتاريخ وطباعة PDF مع ملخص يومي',
+          title: 'ط§ظ„طھظ‚ط§ط±ظٹط±',
+          subtitle:
+              'ط¨ط­ط« ط¨ط§ظ„طھط§ط±ظٹط® ظˆط·ط¨ط§ط¹ط© PDF ظ…ط¹ ظ…ظ„ط®طµ ظٹظˆظ…ظٹ',
           child: Column(
             children: [
               _buildDateFilterControls(),
@@ -1680,8 +1918,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildUserForm() {
     return AdminSectionCard(
-      title: 'إضافة مستخدم',
-      subtitle: 'مدير أو معتمد أو وكيل',
+      title: 'ط¥ط¶ط§ظپط© ظ…ط³طھط®ط¯ظ…',
+      subtitle: 'ظ…ط¯ظٹط± ط£ظˆ ظ…ط¹طھظ…ط¯ ط£ظˆ ظˆظƒظٹظ„',
       child: Form(
         key: _userFormKey,
         autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -1689,26 +1927,36 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           children: [
             TextFormField(
               controller: _uUsername,
-              decoration: const InputDecoration(labelText: 'اسم المستخدم'),
+              decoration: const InputDecoration(
+                labelText: 'ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ…',
+              ),
               validator: AppValidators.username,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _uFullName,
-              decoration: const InputDecoration(labelText: 'الاسم الكامل'),
+              decoration: const InputDecoration(
+                labelText: 'ط§ظ„ط§ط³ظ… ط§ظ„ظƒط§ظ…ظ„',
+              ),
               validator: AppValidators.requiredText,
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<UserRole>(
               initialValue: _uRole,
-              decoration: const InputDecoration(labelText: 'الدور'),
+              decoration: const InputDecoration(labelText: 'ط§ظ„ط¯ظˆط±'),
               items: const [
-                DropdownMenuItem(value: UserRole.agent, child: Text('وكيل')),
+                DropdownMenuItem(
+                  value: UserRole.agent,
+                  child: Text('ظˆظƒظٹظ„'),
+                ),
                 DropdownMenuItem(
                   value: UserRole.accredited,
-                  child: Text('معتمد'),
+                  child: Text('ظ…ط¹طھظ…ط¯'),
                 ),
-                DropdownMenuItem(value: UserRole.admin, child: Text('مدير')),
+                DropdownMenuItem(
+                  value: UserRole.admin,
+                  child: Text('ظ…ط¯ظٹط±'),
+                ),
               ],
               onChanged: (value) =>
                   _setViewState(() => _uRole = value ?? UserRole.agent),
@@ -1719,7 +1967,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _uCity,
-                    decoration: const InputDecoration(labelText: 'المدينة'),
+                    decoration: const InputDecoration(
+                      labelText: 'ط§ظ„ظ…ط¯ظٹظ†ط©',
+                    ),
                     validator: AppValidators.requiredText,
                   ),
                 ),
@@ -1727,7 +1977,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _uCountry,
-                    decoration: const InputDecoration(labelText: 'الدولة'),
+                    decoration: const InputDecoration(
+                      labelText: 'ط§ظ„ط¯ظˆظ„ط©',
+                    ),
                     validator: AppValidators.requiredText,
                   ),
                 ),
@@ -1737,7 +1989,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             TextFormField(
               controller: _uPassword,
               decoration: const InputDecoration(
-                labelText: 'كلمة المرور الأولية',
+                labelText: 'ظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط± ط§ظ„ط£ظˆظ„ظٹط©',
               ),
               obscureText: true,
               validator: AppValidators.password,
@@ -1747,7 +1999,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _createUser,
-                child: const Text('إنشاء المستخدم'),
+                child: const Text('ط¥ظ†ط´ط§ط، ط§ظ„ظ…ط³طھط®ط¯ظ…'),
               ),
             ),
           ],
@@ -1766,8 +2018,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         : null;
 
     return AdminSectionCard(
-      title: 'إضافة صندوق',
-      subtitle: 'صندوق معتمد أو وكيل أو خزنة',
+      title: 'ط¥ط¶ط§ظپط© طµظ†ط¯ظˆظ‚',
+      subtitle: 'طµظ†ط¯ظˆظ‚ ظ…ط¹طھظ…ط¯ ط£ظˆ ظˆظƒظٹظ„ ط£ظˆ ط®ط²ظ†ط©',
       child: Form(
         key: _cashboxFormKey,
         autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -1775,20 +2027,28 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           children: [
             TextFormField(
               controller: _cName,
-              decoration: const InputDecoration(labelText: 'اسم الصندوق'),
+              decoration: const InputDecoration(
+                labelText: 'ط§ط³ظ… ط§ظ„طµظ†ط¯ظˆظ‚',
+              ),
               validator: AppValidators.requiredText,
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: _cType,
-              decoration: const InputDecoration(labelText: 'النوع'),
+              decoration: const InputDecoration(labelText: 'ط§ظ„ظ†ظˆط¹'),
               items: const [
                 DropdownMenuItem(
                   value: 'accredited',
-                  child: Text('صندوق معتمد'),
+                  child: Text('طµظ†ط¯ظˆظ‚ ظ…ط¹طھظ…ط¯'),
                 ),
-                DropdownMenuItem(value: 'agent', child: Text('صندوق وكيل')),
-                DropdownMenuItem(value: 'treasury', child: Text('الخزنة')),
+                DropdownMenuItem(
+                  value: 'agent',
+                  child: Text('طµظ†ط¯ظˆظ‚ ظˆظƒظٹظ„'),
+                ),
+                DropdownMenuItem(
+                  value: 'treasury',
+                  child: Text('ط§ظ„ط®ط²ظ†ط©'),
+                ),
               ],
               onChanged: (value) => _setViewState(() {
                 _cType = value ?? 'accredited';
@@ -1802,7 +2062,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _cCity,
-                    decoration: const InputDecoration(labelText: 'المدينة'),
+                    decoration: const InputDecoration(
+                      labelText: 'ط§ظ„ظ…ط¯ظٹظ†ط©',
+                    ),
                     validator: AppValidators.requiredText,
                   ),
                 ),
@@ -1810,7 +2072,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _cCountry,
-                    decoration: const InputDecoration(labelText: 'الدولة'),
+                    decoration: const InputDecoration(
+                      labelText: 'ط§ظ„ط¯ظˆظ„ط©',
+                    ),
                     validator: AppValidators.requiredText,
                   ),
                 ),
@@ -1821,7 +2085,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               TextFormField(
                 controller: _cManagerSearch,
                 decoration: const InputDecoration(
-                  labelText: 'بحث عن المسؤول',
+                  labelText: 'ط¨ط­ط« ط¹ظ† ط§ظ„ظ…ط³ط¤ظˆظ„',
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
                 onChanged: (_) {
@@ -1837,7 +2101,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: selectedManagerId,
-                decoration: const InputDecoration(labelText: 'المسؤول'),
+                decoration: const InputDecoration(labelText: 'ط§ظ„ظ…ط³ط¤ظˆظ„'),
                 items: managerOptions
                     .map(
                       (u) => DropdownMenuItem(
@@ -1849,9 +2113,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 onChanged: (value) => _setViewState(() => _cManagerId = value),
                 validator: (v) {
                   if (managerOptions.isEmpty) {
-                    return 'لا يوجد مسؤولون مطابقون للدور أو البحث.';
+                    return 'ظ„ط§ ظٹظˆط¬ط¯ ظ…ط³ط¤ظˆظ„ظˆظ† ظ…ط·ط§ط¨ظ‚ظˆظ† ظ„ظ„ط¯ظˆط± ط£ظˆ ط§ظ„ط¨ط­ط«.';
                   }
-                  return (v == null || v.isEmpty) ? 'اختر مسؤولاً' : null;
+                  return (v == null || v.isEmpty)
+                      ? 'ط§ط®طھط± ظ…ط³ط¤ظˆظ„ط§ظ‹'
+                      : null;
                 },
               ),
               if (managerOptions.isEmpty)
@@ -1860,7 +2126,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      'لا يوجد مسؤولون مطابقون حالياً.',
+                      'ظ„ط§ ظٹظˆط¬ط¯ ظ…ط³ط¤ظˆظ„ظˆظ† ظ…ط·ط§ط¨ظ‚ظˆظ† ط­ط§ظ„ظٹط§ظ‹.',
                       style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                     ),
                   ),
@@ -1869,7 +2135,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             const SizedBox(height: 8),
             TextFormField(
               controller: _cOpening,
-              decoration: const InputDecoration(labelText: 'الرصيد الافتتاحي'),
+              decoration: const InputDecoration(
+                labelText: 'ط§ظ„ط±طµظٹط¯ ط§ظ„ط§ظپطھطھط§ط­ظٹ',
+              ),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -1880,7 +2148,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _createCashbox,
-                child: const Text('إنشاء الصندوق'),
+                child: const Text('ط¥ظ†ط´ط§ط، ط§ظ„طµظ†ط¯ظˆظ‚'),
               ),
             ),
           ],
@@ -1896,10 +2164,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         _buildUsersFilterCard(showSearchField: true),
         const SizedBox(height: 10),
         _buildUsersResultCard(
-          title: 'قائمة المستخدمين',
-          subtitle: 'قائمة مفلترة حسب الدور أو تاريخ الإضافة',
+          title: 'ظ‚ط§ط¦ظ…ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ†',
+          subtitle:
+              'ظ‚ط§ط¦ظ…ط© ظ…ظپظ„طھط±ط© ط­ط³ط¨ ط§ظ„ط¯ظˆط± ط£ظˆ طھط§ط±ظٹط® ط§ظ„ط¥ط¶ط§ظپط©',
           users: users.take(30).toList(),
-          emptyText: 'لا توجد نتائج مطابقة.',
+          emptyText: 'ظ„ط§ طھظˆط¬ط¯ ظ†طھط§ط¦ط¬ ظ…ط·ط§ط¨ظ‚ط©.',
         ),
       ],
     );
@@ -1907,11 +2176,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildCashboxesList() {
     return AdminSectionCard(
-      title: 'قائمة الصناديق',
-      subtitle: 'عرض مختصر للصناديق والمدير المسؤول',
+      title: 'ظ‚ط§ط¦ظ…ط© ط§ظ„طµظ†ط§ط¯ظٹظ‚',
+      subtitle:
+          'ط¹ط±ط¶ ظ…ط®طھطµط± ظ„ظ„طµظ†ط§ط¯ظٹظ‚ ظˆط§ظ„ظ…ط¯ظٹط± ط§ظ„ظ…ط³ط¤ظˆظ„',
       child: Column(
         children: _cashboxes.take(18).map((c) {
-          final trailing = c.isTreasury ? 'مفتوحة' : moneyText(c.balanceValue);
+          final trailing = c.isTreasury
+              ? 'ظ…ظپطھظˆط­ط©'
+              : moneyText(c.balanceValue);
           final subtitle =
               '${cashboxTypeLabelAr(c.type)} - ${c.city}, ${c.country}${c.managerName == null ? '' : ' - ${c.managerName}'}';
           return ListTile(
@@ -1932,10 +2204,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   Widget _buildTreasuryRoutesSection() {
     final targetLabel =
         (_routeType == 'agent_funding' || _routeType == 'agent_collection')
-        ? 'صندوق الوكيل'
-        : 'الصندوق المعتمد';
+        ? 'طµظ†ط¯ظˆظ‚ ط§ظ„ظˆظƒظٹظ„'
+        : 'ط§ظ„طµظ†ط¯ظˆظ‚ ط§ظ„ظ…ط¹طھظ…ط¯';
     return AdminSectionCard(
-      title: 'مسارات الخزنة',
+      title: 'ظ…ط³ط§ط±ط§طھ ط§ظ„ط®ط²ظ†ط©',
       subtitle: transferTypeHintAr(_routeType),
       child: Column(
         children: [
@@ -1944,10 +2216,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             runSpacing: 6,
             children: [
               for (final option in const [
-                ('topup', 'تعبئة معتمد'),
-                ('collection', 'تحصيل من معتمد'),
-                ('agent_funding', 'تمويل وكيل'),
-                ('agent_collection', 'تحصيل من وكيل'),
+                ('topup', 'طھط¹ط¨ط¦ط© ظ…ط¹طھظ…ط¯'),
+                ('collection', 'طھط­طµظٹظ„ ظ…ظ† ظ…ط¹طھظ…ط¯'),
+                ('agent_funding', 'طھظ…ظˆظٹظ„ ظˆظƒظٹظ„'),
+                ('agent_collection', 'طھط­طµظٹظ„ ظ…ظ† ظˆظƒظٹظ„'),
               ])
                 ChoiceChip(
                   label: Text(option.$2),
@@ -1984,7 +2256,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           const SizedBox(height: 8),
           TextFormField(
             controller: _routeAmount,
-            decoration: const InputDecoration(labelText: 'المبلغ'),
+            decoration: const InputDecoration(labelText: 'ط§ظ„ظ…ط¨ظ„ط؛'),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 8),
@@ -1992,9 +2264,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             controller: _routeCommissionPercent,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
-              labelText: 'نسبة عمولة الخزنة %',
+              labelText: 'ظ†ط³ط¨ط© ط¹ظ…ظˆظ„ط© ط§ظ„ط®ط²ظ†ط© %',
               helperText:
-                  'القيمة الافتراضية من ضبط العمولات ويمكن تعديلها لهذه العملية فقط',
+                  'ط§ظ„ظ‚ظٹظ…ط© ط§ظ„ط§ظپطھط±ط§ط¶ظٹط© ظ…ظ† ط¶ط¨ط· ط§ظ„ط¹ظ…ظˆظ„ط§طھ ظˆظٹظ…ظƒظ† طھط¹ط¯ظٹظ„ظ‡ط§ ظ„ظ‡ط°ظ‡ ط§ظ„ط¹ظ…ظ„ظٹط© ظپظ‚ط·',
             ),
             validator: AppValidators.percent,
             onChanged: (_) => _routeCommissionManuallyEdited = true,
@@ -2007,13 +2279,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 _applyDefaultRouteCommissionPercent(force: true);
               }),
               icon: const Icon(Icons.restart_alt_rounded, size: 16),
-              label: const Text('استعادة العمولة الافتراضية'),
+              label: const Text(
+                'ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظˆظ„ط© ط§ظ„ط§ظپطھط±ط§ط¶ظٹط©',
+              ),
             ),
           ),
           const SizedBox(height: 8),
           TextFormField(
             controller: _routeNote,
-            decoration: const InputDecoration(labelText: 'ملاحظة'),
+            decoration: const InputDecoration(labelText: 'ظ…ظ„ط§ط­ط¸ط©'),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -2028,12 +2302,199 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  Widget _buildTreasuryRouteByNameSection() {
+    final selectedUser = _routeByNameSelectedUser;
+    final selectedCashbox = _routeByNameCashbox;
+    final targetLabel =
+        (_routeByNameType == 'agent_funding' ||
+            _routeByNameType == 'agent_collection')
+        ? 'صندوق الوكيل'
+        : 'صندوق المعتمد';
+
+    return AdminSectionCard(
+      title: 'تنفيذ حسب الاسم',
+      subtitle: 'ابحث عن اسم المستخدم، وسيتم تحديد صندوقه تلقائيًا',
+      child: Column(
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final option in const [
+                ('topup', 'تعبئة معتمد'),
+                ('collection', 'تحصيل من معتمد'),
+                ('agent_funding', 'تمويل وكيل'),
+                ('agent_collection', 'تحصيل من وكيل'),
+              ])
+                ChoiceChip(
+                  label: Text(option.$2),
+                  selected: _routeByNameType == option.$1,
+                  onSelected: (_) => _setViewState(() {
+                    _routeByNameType = option.$1;
+                    _routeByNameCommissionManuallyEdited = false;
+                    _syncRouteByNameSelection();
+                    _applyDefaultRouteByNameCommissionPercent(force: true);
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _routeByNameSearch,
+            decoration: const InputDecoration(
+              labelText: 'بحث باسم المستخدم أو الاسم الكامل',
+              prefixIcon: Icon(Icons.search_rounded),
+            ),
+            onChanged: (_) => _setViewState(_syncRouteByNameSelection),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue:
+                _routeByNameUserOptions.any(
+                  (user) => user.id == _routeByNameUserId,
+                )
+                ? _routeByNameUserId
+                : null,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'المستخدم'),
+            items: _routeByNameUserOptions
+                .map(
+                  (user) => DropdownMenuItem(
+                    value: user.id,
+                    child: Text(
+                      '${user.fullName} (${user.username}) - ${roleLabelAr(user.role)}',
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) => _setViewState(() {
+              _routeByNameUserId = value;
+              _syncRouteByNameSelection();
+            }),
+          ),
+          if (_routeByNameUserOptions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'لا توجد نتائج مطابقة لبحث الاسم ضمن نوع العملية الحالي.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                ),
+              ),
+            ),
+          if (selectedUser != null && selectedCashbox != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.panel.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.brandInk.withValues(alpha: 0.08),
+                ),
+              ),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 6,
+                children: [
+                  Text('الاسم: ${selectedUser.fullName}'),
+                  Text('المعرف: @${selectedUser.username}'),
+                  Text('الدور: ${roleLabelAr(selectedUser.role)}'),
+                  Text(
+                    'المدينة/الدولة: ${selectedUser.city} - ${selectedUser.country}',
+                  ),
+                  Text('$targetLabel: ${selectedCashbox.name}'),
+                  Text(
+                    'الرصيد الحالي: ${moneyText(selectedCashbox.balanceValue)}',
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_routeByNameCashboxOptions.length > 1) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue:
+                  _routeByNameCashboxOptions.any(
+                    (cashbox) => cashbox.id == _routeByNameCashboxId,
+                  )
+                  ? _routeByNameCashboxId
+                  : null,
+              decoration: InputDecoration(labelText: targetLabel),
+              isExpanded: true,
+              items: _routeByNameCashboxOptions
+                  .map(
+                    (cashbox) => DropdownMenuItem(
+                      value: cashbox.id,
+                      child: Text(
+                        '${cashbox.name} - ${cashbox.city}, ${cashbox.country}',
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) =>
+                  _setViewState(() => _routeByNameCashboxId = value),
+            ),
+          ],
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _routeByNameAmount,
+            decoration: const InputDecoration(labelText: 'المبلغ'),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: AppValidators.amount,
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _routeByNameCommissionPercent,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'نسبة عمولة الخزنة %',
+              helperText: 'قابلة للتعديل لهذه العملية فقط',
+            ),
+            validator: AppValidators.percent,
+            onChanged: (_) => _routeByNameCommissionManuallyEdited = true,
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _setViewState(() {
+                _routeByNameCommissionManuallyEdited = false;
+                _applyDefaultRouteByNameCommissionPercent(force: true);
+              }),
+              icon: const Icon(Icons.restart_alt_rounded, size: 16),
+              label: const Text('استعادة العمولة الافتراضية'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _routeByNameNote,
+            decoration: const InputDecoration(labelText: 'ملاحظة'),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _createTreasuryRouteByName,
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: Text(transferTypeLabelAr(_routeByNameType)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDailyReportCard() {
     return AdminSectionCard(
-      title: 'التقارير اليومية',
-      subtitle: 'إجمالي العمليات والعمولات والأرباح لكل يوم',
+      title: 'ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ظٹظˆظ…ظٹط©',
+      subtitle:
+          'ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¹ظ…ظ„ظٹط§طھ ظˆط§ظ„ط¹ظ…ظˆظ„ط§طھ ظˆط§ظ„ط£ط±ط¨ط§ط­ ظ„ظƒظ„ ظٹظˆظ…',
       child: _dailyReport.isEmpty
-          ? const Text('لا توجد بيانات يومية ضمن الفترة المختارة.')
+          ? const Text(
+              'ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ ظٹظˆظ…ظٹط© ط¶ظ…ظ† ط§ظ„ظپطھط±ط© ط§ظ„ظ…ط®طھط§ط±ط©.',
+            )
           : Column(
               children: _dailyReport
                   .map(
@@ -2042,18 +2503,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                       contentPadding: EdgeInsets.zero,
                       title: Text(row.date),
                       subtitle: Text(
-                        'العمليات: ${row.transfersCount} - المكتملة: ${row.completedCount} - المعلقة: ${row.pendingCount}',
+                        'ط§ظ„ط¹ظ…ظ„ظٹط§طھ: ${row.transfersCount} - ط§ظ„ظ…ظƒطھظ…ظ„ط©: ${row.completedCount} - ط§ظ„ظ…ط¹ظ„ظ‚ط©: ${row.pendingCount}',
                       ),
                       trailing: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            'الإجمالي ${moneyText(row.totalAmount)}',
+                            'ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ${moneyText(row.totalAmount)}',
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            'عمولة ${moneyText(row.totalCommission)} / ربح وكيل ${moneyText(row.totalAgentProfit)}',
+                            'ط¹ظ…ظˆظ„ط© ${moneyText(row.totalCommission)} / ط±ط¨ط­ ظˆظƒظٹظ„ ${moneyText(row.totalAgentProfit)}',
                             style: const TextStyle(
                               fontSize: 11,
                               color: AppTheme.textMuted,
@@ -2070,10 +2531,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildPendingRequests() {
     return AdminSectionCard(
-      title: 'طلبات بانتظار القرار',
-      subtitle: 'اعتماد أو رفض طلبات التعبئة والتحصيل',
+      title: 'ط·ظ„ط¨ط§طھ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ظ‚ط±ط§ط±',
+      subtitle:
+          'ط§ط¹طھظ…ط§ط¯ ط£ظˆ ط±ظپط¶ ط·ظ„ط¨ط§طھ ط§ظ„طھط¹ط¨ط¦ط© ظˆط§ظ„طھط­طµظٹظ„',
       child: _pendingTransfers.isEmpty
-          ? const Text('لا توجد طلبات معلقة حالياً.')
+          ? const Text('ظ„ط§ طھظˆط¬ط¯ ط·ظ„ط¨ط§طھ ظ…ط¹ظ„ظ‚ط© ط­ط§ظ„ظٹط§ظ‹.')
           : Column(
               children: _pendingTransfers.map((transfer) {
                 final busy = _reviewingTransferId == transfer.id;
@@ -2097,18 +2559,19 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildRecentTransfers() {
     return AdminSectionCard(
-      title: 'سجل التحويلات',
-      subtitle: 'نتائج السجل ضمن الفترة الزمنية الحالية',
+      title: 'ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ',
+      subtitle:
+          'ظ†طھط§ط¦ط¬ ط§ظ„ط³ط¬ظ„ ط¶ظ…ظ† ط§ظ„ظپطھط±ط© ط§ظ„ط²ظ…ظ†ظٹط© ط§ظ„ط­ط§ظ„ظٹط©',
       child: Column(
         children: [
           _buildDateFilterControls(),
           const SizedBox(height: 8),
-          _buildPrintButton(label: 'طباعة سجل التحويلات PDF'),
+          _buildPrintButton(label: 'ط·ط¨ط§ط¹ط© ط³ط¬ظ„ ط§ظ„طھط­ظˆظٹظ„ط§طھ PDF'),
           const SizedBox(height: 10),
           if (_recentTransfers.isEmpty)
             const Align(
               alignment: Alignment.centerRight,
-              child: Text('لا توجد سجلات.'),
+              child: Text('ظ„ط§ طھظˆط¬ط¯ ط³ط¬ظ„ط§طھ.'),
             )
           else
             Column(
@@ -2129,31 +2592,31 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildCommissionSettingsSection() {
     return AdminSectionCard(
-      title: 'ضبط العمولات',
+      title: 'ط¶ط¨ط· ط§ظ„ط¹ظ…ظˆظ„ط§طھ',
       subtitle:
-          'تحديد عمولة التحويل الداخلية والخارجية مع أرباح الوكيل والمعتمد.',
+          'طھط­ط¯ظٹط¯ ط¹ظ…ظˆظ„ط© ط§ظ„طھط­ظˆظٹظ„ ط§ظ„ط¯ط§ط®ظ„ظٹط© ظˆط§ظ„ط®ط§ط±ط¬ظٹط© ظ…ط¹ ط£ط±ط¨ط§ط­ ط§ظ„ظˆظƒظٹظ„ ظˆط§ظ„ظ…ط¹طھظ…ط¯.',
       child: Column(
         children: [
           _buildCommissionEditor(
-            title: 'عمولات المعتمد',
+            title: 'ط¹ظ…ظˆظ„ط§طھ ط§ظ„ظ…ط¹طھظ…ط¯',
             internalController: _accreditedInternal,
             externalController: _accreditedExternal,
             showAgentProfit: true,
             agentProfitInternalController: _accreditedTransferProfitInternal,
             agentProfitExternalController: _accreditedTransferProfitExternal,
-            agentProfitInternalLabel: 'ربح المعتمد داخلي %',
-            agentProfitExternalLabel: 'ربح المعتمد خارجي %',
+            agentProfitInternalLabel: 'ط±ط¨ط­ ط§ظ„ظ…ط¹طھظ…ط¯ ط¯ط§ط®ظ„ظٹ %',
+            agentProfitExternalLabel: 'ط±ط¨ط­ ط§ظ„ظ…ط¹طھظ…ط¯ ط®ط§ط±ط¬ظٹ %',
           ),
           const SizedBox(height: 10),
           _buildCommissionEditor(
-            title: 'عمولات الوكيل',
+            title: 'ط¹ظ…ظˆظ„ط§طھ ط§ظ„ظˆظƒظٹظ„',
             internalController: _agentInternal,
             externalController: _agentExternal,
             showAgentProfit: true,
             agentProfitInternalController: _agentTopupProfitInternal,
             agentProfitExternalController: _agentTopupProfitExternal,
-            agentProfitInternalLabel: 'ربح الوكيل داخلي %',
-            agentProfitExternalLabel: 'ربح الوكيل خارجي %',
+            agentProfitInternalLabel: 'ط±ط¨ط­ ط§ظ„ظˆظƒظٹظ„ ط¯ط§ط®ظ„ظٹ %',
+            agentProfitExternalLabel: 'ط±ط¨ط­ ط§ظ„ظˆظƒظٹظ„ ط®ط§ط±ط¬ظٹ %',
           ),
           const SizedBox(height: 10),
           Container(
@@ -2169,7 +2632,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'عمولات مسارات الخزنة',
+                  'ط¹ظ…ظˆظ„ط§طھ ظ…ط³ط§ط±ط§طھ ط§ظ„ط®ط²ظ†ط©',
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 8),
@@ -2182,7 +2645,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           decimal: true,
                         ),
                         decoration: const InputDecoration(
-                          labelText: 'من الخزنة إلى المعتمد %',
+                          labelText:
+                              'ظ…ظ† ط§ظ„ط®ط²ظ†ط© ط¥ظ„ظ‰ ط§ظ„ظ…ط¹طھظ…ط¯ %',
                         ),
                         validator: AppValidators.percent,
                       ),
@@ -2195,7 +2659,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           decimal: true,
                         ),
                         decoration: const InputDecoration(
-                          labelText: 'من الخزنة إلى الوكيل %',
+                          labelText: 'ظ…ظ† ط§ظ„ط®ط²ظ†ط© ط¥ظ„ظ‰ ط§ظ„ظˆظƒظٹظ„ %',
                         ),
                         validator: AppValidators.percent,
                       ),
@@ -2212,7 +2676,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           decimal: true,
                         ),
                         decoration: const InputDecoration(
-                          labelText: 'تحصيل من المعتمد إلى الخزنة %',
+                          labelText:
+                              'طھط­طµظٹظ„ ظ…ظ† ط§ظ„ظ…ط¹طھظ…ط¯ ط¥ظ„ظ‰ ط§ظ„ط®ط²ظ†ط© %',
                         ),
                         validator: AppValidators.percent,
                       ),
@@ -2225,7 +2690,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           decimal: true,
                         ),
                         decoration: const InputDecoration(
-                          labelText: 'تحصيل من الوكيل إلى الخزنة %',
+                          labelText:
+                              'طھط­طµظٹظ„ ظ…ظ† ط§ظ„ظˆظƒظٹظ„ ط¥ظ„ظ‰ ط§ظ„ط®ط²ظ†ط© %',
                         ),
                         validator: AppValidators.percent,
                       ),
@@ -2240,7 +2706,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _saveCommissions,
-              child: const Text('حفظ العمولات'),
+              child: const Text('ط­ظپط¸ ط§ظ„ط¹ظ…ظˆظ„ط§طھ'),
             ),
           ),
         ],
@@ -2250,8 +2716,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Widget _buildSystemInfoSection() {
     return AdminSectionCard(
-      title: 'معلومات النظام',
-      subtitle: 'بيانات الحساب الحالي',
+      title: 'ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ظ†ط¸ط§ظ…',
+      subtitle: 'ط¨ظٹط§ظ†ط§طھ ط§ظ„ط­ط³ط§ط¨ ط§ظ„ط­ط§ظ„ظٹ',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2261,7 +2727,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             leading: const Icon(Icons.person_outline_rounded),
             title: Text(widget.session.fullName),
             subtitle: Text(
-              'مدير - ${widget.session.city}, ${widget.session.country} - ${widget.session.username}',
+              'ظ…ط¯ظٹط± - ${widget.session.city}, ${widget.session.country} - ${widget.session.username}',
             ),
           ),
         ],
@@ -2300,7 +2766,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     decimal: true,
                   ),
                   decoration: const InputDecoration(
-                    labelText: 'عمولة داخلية %',
+                    labelText: 'ط¹ظ…ظˆظ„ط© ط¯ط§ط®ظ„ظٹط© %',
                   ),
                   validator: AppValidators.percent,
                 ),
@@ -2313,7 +2779,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     decimal: true,
                   ),
                   decoration: const InputDecoration(
-                    labelText: 'عمولة خارجية %',
+                    labelText: 'ط¹ظ…ظˆظ„ط© ط®ط§ط±ط¬ظٹط© %',
                   ),
                   validator: AppValidators.percent,
                 ),
@@ -2332,7 +2798,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ),
                     decoration: InputDecoration(
                       labelText:
-                          agentProfitInternalLabel ?? 'ربح تعبئة داخلي %',
+                          agentProfitInternalLabel ??
+                          'ط±ط¨ط­ طھط¹ط¨ط¦ط© ط¯ط§ط®ظ„ظٹ %',
                     ),
                     validator: AppValidators.percent,
                   ),
@@ -2346,7 +2813,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ),
                     decoration: InputDecoration(
                       labelText:
-                          agentProfitExternalLabel ?? 'ربح تعبئة خارجي %',
+                          agentProfitExternalLabel ??
+                          'ط±ط¨ط­ طھط¹ط¨ط¦ط© ط®ط§ط±ط¬ظٹ %',
                     ),
                     validator: AppValidators.percent,
                   ),
@@ -2382,4 +2850,14 @@ class _AdminRoutePreview {
   final double senderDeduction;
   final double recipientCredit;
   final bool splitInput;
+}
+
+class _AdminRouteResolution {
+  const _AdminRouteResolution({
+    required this.fromCashboxId,
+    required this.toCashboxId,
+  });
+
+  final String fromCashboxId;
+  final String toCashboxId;
 }
