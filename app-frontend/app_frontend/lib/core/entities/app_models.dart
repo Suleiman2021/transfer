@@ -525,7 +525,7 @@ String transferStateLabelAr(String state) {
     case 'rejected':
       return 'مرفوضة';
     case 'failed':
-      return 'فشلت';
+      return 'فشلت/ملغاة';
     default:
       return state;
   }

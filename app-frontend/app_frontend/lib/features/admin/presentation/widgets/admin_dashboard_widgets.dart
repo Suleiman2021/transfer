@@ -83,7 +83,9 @@ class AdminHeroHeader extends StatelessWidget {
                         ],
                       ),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.26)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.26),
+                      ),
                     ),
                     child: const Icon(
                       Icons.admin_panel_settings_rounded,
@@ -217,7 +219,10 @@ class AdminMetricCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   hint,
-                  style: const TextStyle(fontSize: 10.2, color: AppTheme.textSoft),
+                  style: const TextStyle(
+                    fontSize: 10.2,
+                    color: AppTheme.textSoft,
+                  ),
                 ),
               ],
             ),
@@ -277,12 +282,14 @@ class AdminTransferTile extends StatelessWidget {
     required this.transfer,
     this.onApprove,
     this.onReject,
+    this.onTap,
     this.busy = false,
   });
 
   final TransferModel transfer;
   final VoidCallback? onApprove;
   final VoidCallback? onReject;
+  final VoidCallback? onTap;
   final bool busy;
 
   @override
@@ -296,7 +303,7 @@ class AdminTransferTile extends StatelessWidget {
       _ => AppTheme.brandInk,
     };
 
-    return Container(
+    final tileBody = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.9),
@@ -386,6 +393,17 @@ class AdminTransferTile extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+
+    if (onTap == null) return tileBody;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: tileBody,
       ),
     );
   }

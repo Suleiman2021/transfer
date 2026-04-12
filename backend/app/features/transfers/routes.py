@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_allow_inactive
 from app.features.transfers.schemas import (
+    TransferCancelRequest,
     DailyTransferReportRow,
     TransferCreateRequest,
     TransferResponse,
@@ -14,6 +15,7 @@ from app.features.transfers.schemas import (
     TransferStateLogResponse,
 )
 from app.features.transfers.service import (
+    cancel_transfer,
     create_transfer,
     daily_transfer_report,
     list_pending_transfers,
@@ -95,6 +97,16 @@ def review_pending_transfer(
     current_user: User = Depends(get_current_user),
 ):
     return review_transfer(db, transfer_id, payload, current_user)
+
+
+@router.post("/{transfer_id}/cancel", response_model=TransferResponse)
+def cancel_completed_transfer(
+    transfer_id: UUID,
+    payload: TransferCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return cancel_transfer(db, transfer_id, payload, current_user)
 
 
 @router.get("/{transfer_id}/states", response_model=list[TransferStateLogResponse])

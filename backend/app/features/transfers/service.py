@@ -12,10 +12,21 @@ from app.features.commissions.service import (
     get_treasury_collection_commission_percent,
     get_treasury_funding_commission_percent,
 )
-from app.features.ledger.service import post_transfer_ledger_entry
+from app.features.ledger.service import (
+    LedgerLineInput,
+    create_ledger_entry,
+    ensure_cashbox_ledger_account,
+    ensure_default_ledger_accounts,
+    post_transfer_ledger_entry,
+)
 from app.features.risk.service import create_risk_alerts, evaluate_transfer_risk, resolve_transfer_alerts
 from app.features.transfers.models import Transfer, TransferState, TransferStateLog, TransferType
-from app.features.transfers.schemas import TransferCreateRequest, TransferReviewAction, TransferReviewRequest
+from app.features.transfers.schemas import (
+    TransferCancelRequest,
+    TransferCreateRequest,
+    TransferReviewAction,
+    TransferReviewRequest,
+)
 from app.features.users.models import User, UserRole
 
 
@@ -722,6 +733,151 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
     db.refresh(transfer)
     return transfer
 
+
+def _apply_transfer_cancellation(db: Session, transfer: Transfer) -> tuple[Cashbox, Cashbox, Cashbox]:
+    source = _get_locked_cashbox(db, transfer.from_cashbox_id)
+    destination = _get_locked_cashbox(db, transfer.to_cashbox_id)
+    treasury = _get_locked_treasury(db)
+
+    if not source or not destination:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
+
+    if not treasury:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Treasury cashbox not configured")
+
+    amount = _q_money(Decimal(transfer.amount))
+    commission_amount = _q_money(Decimal(transfer.commission_amount))
+
+    if transfer.operation_type == TransferType.customer_cashout:
+        source.balance = _q_money(Decimal(source.balance) + amount)
+        return source, destination, treasury
+
+    destination_balance = _q_money(Decimal(destination.balance))
+    if destination_balance < amount:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot cancel transfer because destination balance is not enough",
+        )
+    destination.balance = _q_money(destination_balance - amount)
+
+    treasury_balance = _q_money(Decimal(treasury.balance))
+    if treasury_balance < commission_amount:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot cancel transfer because treasury balance is not enough",
+        )
+    treasury.balance = _q_money(treasury_balance - commission_amount)
+
+    source.balance = _q_money(Decimal(source.balance) + amount + commission_amount)
+    return source, destination, treasury
+
+
+def _post_transfer_cancellation_ledger_entry(
+    db: Session,
+    transfer: Transfer,
+    *,
+    source: Cashbox,
+    destination: Cashbox,
+    treasury: Cashbox,
+    created_by_id: UUID,
+) -> None:
+    ensure_default_ledger_accounts(db)
+    source_account = ensure_cashbox_ledger_account(db, source)
+    destination_account = ensure_cashbox_ledger_account(db, destination)
+    treasury_account = ensure_cashbox_ledger_account(db, treasury)
+
+    amount = _q_money(Decimal(transfer.amount))
+    commission = _q_money(Decimal(transfer.commission_amount))
+    source_debit = _q_money(amount + commission)
+
+    lines = [
+        LedgerLineInput(
+            account_id=source_account.id,
+            debit=source_debit,
+            credit=Decimal("0"),
+            currency=transfer.source_currency,
+        ),
+        LedgerLineInput(
+            account_id=destination_account.id,
+            debit=Decimal("0"),
+            credit=amount,
+            currency=transfer.destination_currency,
+        ),
+    ]
+
+    if commission > 0:
+        lines.append(
+            LedgerLineInput(
+                account_id=treasury_account.id,
+                debit=Decimal("0"),
+                credit=commission,
+                currency=transfer.destination_currency,
+            )
+        )
+
+    create_ledger_entry(
+        db,
+        created_by_id=created_by_id,
+        transfer_id=None,
+        reference_type="transfer_cancellation",
+        reference_id=transfer.id,
+        description=f"Cancellation of transfer {transfer.id}",
+        lines=lines,
+    )
+
+
+def cancel_transfer(
+    db: Session,
+    transfer_id: UUID,
+    payload: TransferCancelRequest,
+    reviewer: User,
+) -> Transfer:
+    if reviewer.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin can cancel completed transfers",
+        )
+
+    transfer = db.query(Transfer).filter(Transfer.id == transfer_id).with_for_update().first()
+    if not transfer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer not found")
+
+    if transfer.state != TransferState.completed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only completed transfers can be cancelled",
+        )
+
+    source, destination, treasury = _apply_transfer_cancellation(db, transfer)
+    _post_transfer_cancellation_ledger_entry(
+        db,
+        transfer,
+        source=source,
+        destination=destination,
+        treasury=treasury,
+        created_by_id=reviewer.id,
+    )
+
+    reason = payload.note.strip() if payload.note else "Cancelled by admin"
+    transfer.state = TransferState.failed
+    transfer.review_required = False
+    transfer.reviewed_by_id = reviewer.id
+    transfer.reviewed_at = datetime.now(timezone.utc)
+    transfer.review_note = reason
+
+    _append_state_log(
+        db,
+        transfer,
+        TransferState.failed,
+        actor_user_id=reviewer.id,
+        reason=reason,
+        context={"action": "admin_cancel", "restored": True},
+    )
+    resolve_transfer_alerts(db, transfer.id)
+
+    db.commit()
+    db.refresh(transfer)
+    return transfer
 
 
 def _start_of_day(day: date) -> datetime:

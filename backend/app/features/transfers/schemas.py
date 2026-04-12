@@ -62,6 +62,10 @@ class TransferReviewRequest(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class TransferCancelRequest(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
+
+
 class TransferResponse(BaseModel):
     id: UUID
     from_cashbox_id: UUID

@@ -31,6 +31,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   bool _loading = true;
   String? _loadError;
   String? _reviewingTransferId;
+  String? _cancellingTransferId;
 
   List<AppUser> _users = const [];
   List<CashboxModel> _cashboxes = const [];
@@ -1071,6 +1072,160 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
   }
 
+  Future<void> _cancelTransfer(TransferModel transfer) async {
+    _setViewState(() => _cancellingTransferId = transfer.id);
+    try {
+      await _api.cancelTransfer(
+        token: widget.session.token,
+        transferId: transfer.id,
+        note: 'إلغاء من الأدمن مع استرجاع الأرصدة والعمولات',
+      );
+      _showSuccess('تم إلغاء العملية واسترجاع الأرصدة والعمولات بنجاح.');
+      await _loadData();
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) {
+        _setViewState(() => _cancellingTransferId = null);
+      }
+    }
+  }
+
+  Future<void> _confirmCancelTransfer(TransferModel transfer) async {
+    if (transfer.state != 'completed') {
+      _showError('يمكن إلغاء التحويلات المكتملة فقط.');
+      return;
+    }
+
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تأكيد إلغاء العملية'),
+        content: Text(
+          'سيتم عكس العملية بالكامل واسترجاع الأرصدة والعمولات.\n\n'
+          'العملية: ${transferTypeLabelAr(transfer.operationType)}\n'
+          'المبلغ: ${moneyText(transfer.amountValue)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('تراجع'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('إلغاء العملية'),
+          ),
+        ],
+      ),
+    );
+    if (approved == true) {
+      await _cancelTransfer(transfer);
+    }
+  }
+
+  Widget _transferInfoLine(
+    String label,
+    String value, {
+    bool emphasize = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: emphasize ? FontWeight.w800 : FontWeight.w700,
+              color: emphasize ? AppTheme.brandTeal : AppTheme.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTransferDetails(TransferModel transfer) async {
+    final canCancel = transfer.state == 'completed';
+    final busy = _cancellingTransferId == transfer.id;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تفاصيل التحويل'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _transferInfoLine(
+                  'نوع العملية',
+                  transferTypeLabelAr(transfer.operationType),
+                ),
+                _transferInfoLine(
+                  'الحالة',
+                  transferStateLabelAr(transfer.state),
+                  emphasize: true,
+                ),
+                _transferInfoLine('من', transfer.fromLabel),
+                _transferInfoLine('إلى', transfer.toLabel),
+                _transferInfoLine('المبلغ', moneyText(transfer.amountValue)),
+                _transferInfoLine(
+                  'عمولة الخزنة',
+                  moneyText(transfer.commissionValue),
+                ),
+                _transferInfoLine(
+                  'ربح المنفذ',
+                  moneyText(transfer.agentProfitValue),
+                ),
+                if (transfer.cashoutProfitValue > 0)
+                  _transferInfoLine(
+                    'ربح صرف العميل',
+                    moneyText(transfer.cashoutProfitValue),
+                  ),
+                if ((transfer.customerName ?? '').isNotEmpty ||
+                    (transfer.customerPhone ?? '').isNotEmpty)
+                  _transferInfoLine(
+                    'بيانات العميل',
+                    '${transfer.customerName ?? '-'} - ${transfer.customerPhone ?? '-'}',
+                  ),
+                if ((transfer.note ?? '').isNotEmpty)
+                  _transferInfoLine('ملاحظة', transfer.note!),
+                _transferInfoLine('الوقت', transfer.createdAt),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إغلاق'),
+            ),
+            if (canCancel)
+              ElevatedButton.icon(
+                onPressed: busy ? null : () => _confirmCancelTransfer(transfer),
+                icon: const Icon(Icons.undo_rounded, size: 18),
+                label: Text(busy ? 'جارٍ الإلغاء...' : 'إلغاء العملية'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _printReports() async {
     try {
       await printReportPdf(
@@ -1148,7 +1303,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                         child: AdminHeroHeader(
                           title: 'لوحة المدير',
                           subtitle:
-                              'إدارة المستخدمين، العمولات، التقارير، ومسارات الخزنة بواجهة منظمة.',
+                              'إدارة المستخدمين، العمولات، والتقارير بواجهة منظمة.',
                           userLine:
                               '${widget.session.fullName} - ${widget.session.city} / ${widget.session.country}',
                           onLogout: () => ref
@@ -1260,16 +1415,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             subtitle: 'كل وظيفة ضمن شاشة مستقلة عبر زر مخصص',
             actions: [
               _buildActionButton(
-                icon: Icons.search_rounded,
-                label: 'بحث المستخدمين',
-                onTap: () => _openSection(
-                  title: 'بحث المستخدمين',
-                  subtitle: 'فلترة وبحث مع بطاقة مستخدم تفصيلية',
-                  icon: Icons.search_rounded,
-                  builder: (_) => _buildUserFilterSection(),
-                ),
-              ),
-              _buildActionButton(
                 icon: Icons.person_add_alt_1_rounded,
                 label: 'إضافة مستخدم',
                 onTap: () => _openSection(
@@ -1299,16 +1444,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   builder: (_) => _buildUsersList(),
                 ),
               ),
-              _buildActionButton(
-                icon: Icons.account_balance_wallet_rounded,
-                label: 'قائمة الصناديق',
-                onTap: () => _openSection(
-                  title: 'قائمة الصناديق',
-                  subtitle: 'عرض الصناديق المسجلة',
-                  icon: Icons.account_balance_wallet_rounded,
-                  builder: (_) => _buildCashboxesList(),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1316,16 +1451,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             title: 'العمليات',
             subtitle: 'كل قسم تشغيلي بواجهة تفصيلية مستقلة',
             actions: [
-              _buildActionButton(
-                icon: Icons.account_balance_rounded,
-                label: 'مسارات الخزنة',
-                onTap: () => _openSection(
-                  title: 'مسارات الخزنة',
-                  subtitle: 'تمويل وتحصيل الصناديق',
-                  icon: Icons.account_balance_rounded,
-                  builder: (_) => _buildTreasuryRoutesSection(),
-                ),
-              ),
               _buildActionButton(
                 icon: Icons.person_search_rounded,
                 label: 'تنفيذ حسب الاسم',
@@ -1532,6 +1657,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildUserFilterSection() {
     final hasAnyFilter =
         _userFilterRole != null ||
@@ -2104,6 +2230,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildCashboxesList() {
     return AdminSectionCard(
       title: 'قائمة الصناديق',
@@ -2128,6 +2255,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildTreasuryRoutesSection() {
     final targetLabel =
         (_routeType == 'agent_funding' || _routeType == 'agent_collection')
@@ -2480,7 +2608,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   .map(
                     (t) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: AdminTransferTile(transfer: t),
+                      child: AdminTransferTile(
+                        transfer: t,
+                        onTap: () => _openTransferDetails(t),
+                      ),
                     ),
                   )
                   .toList(),

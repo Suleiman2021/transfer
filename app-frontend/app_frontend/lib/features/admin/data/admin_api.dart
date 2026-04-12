@@ -300,6 +300,17 @@ class AdminApi {
     return TransferModel.fromJson(json);
   }
 
+  Future<TransferModel> cancelTransfer({
+    required String token,
+    required String transferId,
+    String? note,
+  }) async {
+    final json = await ApiClient.postJson('/transfers/$transferId/cancel', {
+      'note': note,
+    }, token: token);
+    return TransferModel.fromJson(json);
+  }
+
   Future<List<RiskAlertModel>> fetchRiskAlerts(
     String token, {
     bool trackActivity = true,

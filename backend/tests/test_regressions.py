@@ -25,6 +25,9 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def with_for_update(self):
+        return self
+
     def first(self):
         return self._result
 
@@ -143,6 +146,39 @@ class TransferPermissionTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Insufficient source cashbox balance", str(ctx.exception.detail))
+
+    def test_transfer_cancellation_restores_balances_and_commission(self):
+        transfer = SimpleNamespace(
+            amount="500.00",
+            commission_amount="10.00",
+            from_cashbox_id="src",
+            to_cashbox_id="dst",
+            operation_type=TransferType.topup,
+        )
+        source = SimpleNamespace(id="src", type=CashboxType.treasury, balance="490.00", is_active=True)
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="700.00", is_active=True)
+        treasury = source
+
+        with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
+            transfers_service, "_get_locked_treasury", return_value=treasury
+        ):
+            transfers_service._apply_transfer_cancellation(None, transfer)
+
+        self.assertEqual(source.balance, transfers_service._q_money("1000.00"))
+        self.assertEqual(destination.balance, transfers_service._q_money("200.00"))
+
+    def test_cancel_transfer_requires_admin_role(self):
+        reviewer = SimpleNamespace(role=UserRole.agent)
+
+        with self.assertRaises(HTTPException) as ctx:
+            transfers_service.cancel_transfer(
+                None,
+                "tx-1",
+                SimpleNamespace(note=None),
+                reviewer,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_agent_topup_splits_gross_amount_into_net_and_fees(self):
         credited, commission, profit = (
