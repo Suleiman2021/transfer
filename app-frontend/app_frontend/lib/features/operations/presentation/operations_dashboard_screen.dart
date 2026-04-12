@@ -118,12 +118,7 @@ class _OperationsDashboardScreenState
     if (widget.session.role == UserRole.agent) {
       return const ['agent_funding', 'topup'];
     }
-    return const [
-      'network_transfer',
-      'topup',
-      'collection',
-      'customer_cashout',
-    ];
+    return const ['network_transfer', 'topup', 'customer_cashout'];
   }
 
   List<CashboxModel> get _sourceOptions {
@@ -176,10 +171,14 @@ class _OperationsDashboardScreenState
 
   String _inferByNameOperationType(CashboxModel? counterparty) {
     if (widget.session.role == UserRole.agent) {
+      if (counterparty != null && counterparty.isTreasury) {
+        return 'agent_funding';
+      }
       return 'topup';
     }
-    if (counterparty != null && counterparty.isAgent) {
-      return 'collection';
+    if (counterparty != null &&
+        (counterparty.isAgent || counterparty.isTreasury)) {
+      return 'topup';
     }
     return 'network_transfer';
   }
@@ -194,18 +193,24 @@ class _OperationsDashboardScreenState
     final term = _byNameUserSearchController.text.trim().toLowerCase();
     late final List<CashboxModel> base;
     if (widget.session.role == UserRole.agent) {
-      base = _allAccreditedCashboxes;
+      base = [
+        ..._allAccreditedCashboxes.where((cashbox) => cashbox.isActive),
+        ..._treasuryCashboxes.where((cashbox) => cashbox.isActive),
+      ];
     } else {
       final ownIds = _myAccreditedCashboxes
           .map((cashbox) => cashbox.id)
           .toSet();
       final accreditedTargets = _allAccreditedCashboxes
-          .where((cashbox) => !ownIds.contains(cashbox.id))
+          .where((cashbox) => cashbox.isActive && !ownIds.contains(cashbox.id))
           .toList();
       final agentTargets = _cashboxes
-          .where((cashbox) => cashbox.isAgent)
+          .where((cashbox) => cashbox.isAgent && cashbox.isActive)
           .toList();
-      base = [...accreditedTargets, ...agentTargets];
+      final treasuryTargets = _treasuryCashboxes
+          .where((cashbox) => cashbox.isActive)
+          .toList();
+      base = [...accreditedTargets, ...agentTargets, ...treasuryTargets];
     }
     if (term.isEmpty) return base;
     return base.where((cashbox) {
@@ -463,10 +468,16 @@ class _OperationsDashboardScreenState
     return UserRole.admin;
   }
 
-  bool _isTreasuryToUserFunding(CashboxModel source, CashboxModel destination) {
+  bool _isTreasuryToUserFunding(
+    CashboxModel source,
+    CashboxModel destination, {
+    String? operationType,
+  }) {
+    final currentOperationType = operationType ?? _operationType;
     return source.isTreasury &&
         (destination.isAccredited || destination.isAgent) &&
-        (_operationType == 'topup' || _operationType == 'agent_funding');
+        (currentOperationType == 'topup' ||
+            currentOperationType == 'agent_funding');
   }
 
   double _defaultCommissionPercentForCurrentFlow() {
@@ -623,7 +634,11 @@ class _OperationsDashboardScreenState
     final destination = _cashboxById(route.toCashboxId);
     if (source == null || destination == null) return 0;
 
-    if (_isTreasuryToUserFunding(source, destination)) {
+    if (_isTreasuryToUserFunding(
+      source,
+      destination,
+      operationType: route.operationType,
+    )) {
       final adminRule = _commissionRule(UserRole.admin);
       if (destination.isAgent) {
         return _parseNumber(adminRule?.treasuryToAgentFeePercent);
@@ -853,8 +868,7 @@ class _OperationsDashboardScreenState
   bool _isCustomerCashoutFlow() => _operationType == 'customer_cashout';
 
   bool _isGrossInputFlow() {
-    if (_operationType == 'collection' ||
-        _operationType == 'customer_cashout') {
+    if (_operationType == 'customer_cashout') {
       return false;
     }
     return _operationType == 'network_transfer' ||
@@ -1034,11 +1048,11 @@ class _OperationsDashboardScreenState
           amount: _byNameAmountController.text.trim(),
           note: _byNameNoteController.text.trim(),
         );
-      case 'collection':
+      case 'agent_funding':
         return _ByNameTransferRoute(
-          operationType: 'collection',
-          fromCashboxId: ownCashboxId,
-          toCashboxId: counterpartyCashboxId,
+          operationType: 'agent_funding',
+          fromCashboxId: counterpartyCashboxId,
+          toCashboxId: ownCashboxId,
           amount: _byNameAmountController.text.trim(),
           note: _byNameNoteController.text.trim(),
         );
@@ -1426,23 +1440,6 @@ class _OperationsDashboardScreenState
           subtitle: 'كل وظيفة في شاشة منفصلة عبر زر واضح',
           actions: [
             _buildActionButton(
-              icon: Icons.flash_on_rounded,
-              label: 'تنفيذ عملية',
-              enabled: _isUserActive,
-              onTap: () {
-                if (!_isUserActive) {
-                  _showInactiveBlockedMessage();
-                  return;
-                }
-                _openSection(
-                  title: 'تنفيذ عملية',
-                  subtitle: 'إرسال تحويل أو تعبئة أو تحصيل',
-                  icon: Icons.flash_on_rounded,
-                  builder: (_) => _buildActionsSection(),
-                );
-              },
-            ),
-            _buildActionButton(
               icon: Icons.person_search_rounded,
               label: 'تنفيذ حسب الاسم',
               enabled: _isUserActive,
@@ -1453,12 +1450,35 @@ class _OperationsDashboardScreenState
                 }
                 _openSection(
                   title: 'تنفيذ حسب الاسم',
-                  subtitle: 'ابحث عن المستخدم وسيتم تحديد صندوقه تلقائيًا',
+                  subtitle: 'أدخل الاسم وسيتم تحديد المسار المناسب تلقائيًا',
                   icon: Icons.person_search_rounded,
                   builder: (_) => _buildActionsByNameSection(),
                 );
               },
             ),
+            if (widget.session.role == UserRole.accredited)
+              _buildActionButton(
+                icon: Icons.account_balance_wallet_rounded,
+                label: 'صرف رصيد لعميل',
+                enabled: _isUserActive,
+                onTap: () {
+                  if (!_isUserActive) {
+                    _showInactiveBlockedMessage();
+                    return;
+                  }
+                  _setViewState(() {
+                    _operationType = 'customer_cashout';
+                    _syncSelections();
+                  });
+                  _openSection(
+                    title: 'صرف رصيد لعميل',
+                    subtitle:
+                        'صرف للعميل مع الاسم والهاتف وربح الصرف النقدي الخاص بالمعتمد',
+                    icon: Icons.account_balance_wallet_rounded,
+                    builder: (_) => _buildActionsSection(),
+                  );
+                },
+              ),
             _buildActionButton(
               icon: Icons.rule_rounded,
               label: 'الطلبات المعلقة',
@@ -1837,10 +1857,16 @@ class _OperationsDashboardScreenState
   Widget _buildActionsByNameSection() {
     final operationsDisabled = !_isUserActive;
     final selectedCounterparty = _byNameSelectedCounterparty;
+    final selectedCounterpartyName = selectedCounterparty == null
+        ? '-'
+        : (selectedCounterparty.isTreasury
+              ? selectedCounterparty.name
+              : (selectedCounterparty.managerName ??
+                    selectedCounterparty.name));
 
     return DashboardSectionCard(
       title: 'تنفيذ حسب الاسم',
-      subtitle: 'أدخل اسم المستخدم ليتم تحديد صندوقه تلقائيًا',
+      subtitle: 'أدخل الاسم ليتم اختيار العملية والصندوق المناسبين تلقائيًا',
       icon: Icons.person_search_rounded,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1863,7 +1889,7 @@ class _OperationsDashboardScreenState
                 ? _byNameCounterpartyCashboxId
                 : null,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'المستخدم المستهدف'),
+            decoration: const InputDecoration(labelText: 'الجهة المستهدفة'),
             items: _byNameCounterpartyOptions
                 .map(
                   (cashbox) => DropdownMenuItem(
@@ -1942,9 +1968,7 @@ class _OperationsDashboardScreenState
                   Text(
                     'العملية المحددة تلقائيًا: ${_operationLabel(_byNameOperationType)}',
                   ),
-                  Text(
-                    'الاسم: ${selectedCounterparty.managerName ?? 'غير محدد'}',
-                  ),
+                  Text('الاسم: $selectedCounterpartyName'),
                   Text('الصندوق: ${selectedCounterparty.name}'),
                   Text(
                     'النوع: ${cashboxTypeLabelAr(selectedCounterparty.type)}',

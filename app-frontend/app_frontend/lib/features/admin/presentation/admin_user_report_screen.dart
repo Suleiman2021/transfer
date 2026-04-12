@@ -33,6 +33,7 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
   UserTransferReportModel? _report;
   List<CashboxModel> _allCashboxes = const [];
   bool _actionBusy = false;
+  String? _cancellingTransferId;
 
   DateTime? _fromDate;
   DateTime? _toDate;
@@ -341,6 +342,166 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
     }
   }
 
+  Future<void> _cancelTransferFromReport(TransferModel transfer) async {
+    if (_cancellingTransferId != null) return;
+    setState(() => _cancellingTransferId = transfer.id);
+    try {
+      await _api.cancelTransfer(
+        token: widget.token,
+        transferId: transfer.id,
+        note: 'إلغاء من شاشة تفاصيل المستخدم بواسطة الأدمن',
+      );
+      if (!mounted) return;
+      AppNotifier.success(context, 'تم إلغاء العملية واسترجاع الأرصدة بنجاح.');
+      await _loadReport();
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    } catch (error) {
+      if (!mounted) return;
+      AppNotifier.error(context, error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _cancellingTransferId = null);
+      }
+    }
+  }
+
+  Future<void> _confirmCancelTransferFromReport(TransferModel transfer) async {
+    if (transfer.state != 'completed') {
+      AppNotifier.error(context, 'يمكن إلغاء التحويلات المكتملة فقط.');
+      return;
+    }
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تأكيد إلغاء العملية'),
+          content: Text(
+            'سيتم عكس التحويل واسترجاع الأرصدة والعمولات.\n\n'
+            'العملية: ${transferTypeLabelAr(transfer.operationType)}\n'
+            'المبلغ: ${moneyText(transfer.amountValue)}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('تراجع'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('إلغاء العملية'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (approved == true) {
+      await _cancelTransferFromReport(transfer);
+    }
+  }
+
+  Widget _transferInfoLine(
+    String label,
+    String value, {
+    bool emphasize = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: emphasize ? FontWeight.w800 : FontWeight.w700,
+              color: emphasize ? AppTheme.brandTeal : AppTheme.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTransferDetails(TransferModel transfer) async {
+    final busy = _cancellingTransferId == transfer.id;
+    final canCancel = transfer.state == 'completed';
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تفاصيل التحويل'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _transferInfoLine(
+                  'نوع العملية',
+                  transferTypeLabelAr(transfer.operationType),
+                ),
+                _transferInfoLine(
+                  'الحالة',
+                  transferStateLabelAr(transfer.state),
+                  emphasize: true,
+                ),
+                _transferInfoLine('من', transfer.fromLabel),
+                _transferInfoLine('إلى', transfer.toLabel),
+                _transferInfoLine('المبلغ', moneyText(transfer.amountValue)),
+                _transferInfoLine(
+                  'عمولة الخزنة',
+                  moneyText(transfer.commissionValue),
+                ),
+                _transferInfoLine(
+                  'ربح المنفذ',
+                  moneyText(transfer.agentProfitValue),
+                ),
+                if (transfer.cashoutProfitValue > 0)
+                  _transferInfoLine(
+                    'ربح صرف العميل',
+                    moneyText(transfer.cashoutProfitValue),
+                  ),
+                if ((transfer.customerName ?? '').isNotEmpty ||
+                    (transfer.customerPhone ?? '').isNotEmpty)
+                  _transferInfoLine(
+                    'بيانات العميل',
+                    '${transfer.customerName ?? '-'} - ${transfer.customerPhone ?? '-'}',
+                  ),
+                if ((transfer.note ?? '').isNotEmpty)
+                  _transferInfoLine('ملاحظة', transfer.note!),
+                _transferInfoLine('وقت الإنشاء', transfer.createdAt),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إغلاق'),
+            ),
+            if (canCancel)
+              ElevatedButton.icon(
+                onPressed: busy
+                    ? null
+                    : () => _confirmCancelTransferFromReport(transfer),
+                icon: const Icon(Icons.undo_rounded, size: 18),
+                label: Text(busy ? 'جارٍ الإلغاء...' : 'إلغاء العملية'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     return Row(
       children: [
@@ -366,7 +527,7 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'تقرير المستخدم',
+                'واجهة المستخدم وصلاحيات الأدمن',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 2),
@@ -690,7 +851,7 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
   Widget _buildTransfers(UserTransferReportModel report) {
     return AdminSectionCard(
       title: 'سجل المستخدم',
-      subtitle: 'تفاصيل التحويلات المرتبطة بهذا المستخدم',
+      subtitle: 'تفاصيل التحويلات المرتبطة بهذا المستخدم (مع إمكانية الإلغاء)',
       child: report.transfers.isEmpty
           ? const Text('لا توجد سجلات تحويل ضمن الفترة المحددة.')
           : Column(
@@ -699,7 +860,10 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                   .map(
                     (transfer) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: AdminTransferTile(transfer: transfer),
+                      child: AdminTransferTile(
+                        transfer: transfer,
+                        onTap: () => _openTransferDetails(transfer),
+                      ),
                     ),
                   )
                   .toList(),
