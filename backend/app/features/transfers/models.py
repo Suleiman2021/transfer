@@ -71,6 +71,8 @@ class Transfer(Base):
 
     risk_score = Column(Numeric(5, 2), nullable=False, default=0)
     review_required = Column(Boolean, nullable=False, default=False)
+    approval_code_required = Column(Boolean, nullable=False, default=False)
+    approval_code_hash = Column(String(255), nullable=True)
     reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     review_note = Column(Text, nullable=True)
@@ -104,6 +106,10 @@ class Transfer(Base):
     @property
     def to_cashbox_type(self) -> CashboxType | None:
         return self.to_cashbox.type if self.to_cashbox else None
+
+    @property
+    def approval_code(self) -> str | None:
+        return getattr(self, "_approval_code", None)
 
 
 class TransferStateLog(Base):

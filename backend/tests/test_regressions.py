@@ -101,6 +101,26 @@ class TransferPermissionTests(unittest.TestCase):
             )
         )
 
+    def test_transfer_approval_code_is_hashed_and_verifiable_once(self):
+        transfer = SimpleNamespace(
+            approval_code_required=False,
+            approval_code_hash=None,
+        )
+
+        code = transfers_service._attach_approval_code(transfer)
+
+        self.assertEqual(len(code), transfers_service.APPROVAL_CODE_LENGTH)
+        self.assertTrue(transfer.approval_code_required)
+        self.assertNotEqual(transfer.approval_code_hash, code)
+        self.assertTrue(transfers_service._verify_transfer_approval_code(transfer, code))
+        self.assertFalse(transfers_service._verify_transfer_approval_code(transfer, "000000"))
+
+        transfers_service._clear_transfer_approval_code(transfer)
+
+        self.assertFalse(transfer.approval_code_required)
+        self.assertIsNone(transfer.approval_code_hash)
+        self.assertIsNone(transfer._approval_code)
+
     def test_posting_deducts_commission_from_sender_balance(self):
         transfer = SimpleNamespace(
             amount="700.00",
@@ -324,7 +344,7 @@ class TransferPermissionTests(unittest.TestCase):
             )
         )
 
-    def test_admin_initiated_agent_funding_is_reviewed_by_agent(self):
+    def test_admin_initiated_agent_funding_can_be_reviewed_by_admin_or_agent(self):
         transfer = SimpleNamespace(
             operation_type=TransferType.agent_funding,
             performed_by_id="admin-1",
@@ -351,7 +371,7 @@ class TransferPermissionTests(unittest.TestCase):
             ],
         )
 
-        self.assertFalse(
+        self.assertTrue(
             transfers_service._can_user_review_pending_transfer(
                 admin, transfer, source, destination
             )
@@ -362,7 +382,7 @@ class TransferPermissionTests(unittest.TestCase):
             )
         )
 
-    def test_admin_collection_from_agent_is_reviewed_by_agent(self):
+    def test_admin_collection_from_agent_can_be_reviewed_by_admin_or_agent(self):
         transfer = SimpleNamespace(
             operation_type=TransferType.agent_collection,
             performed_by_id="admin-1",
@@ -389,7 +409,7 @@ class TransferPermissionTests(unittest.TestCase):
             ],
         )
 
-        self.assertFalse(
+        self.assertTrue(
             transfers_service._can_user_review_pending_transfer(
                 admin, transfer, source, destination
             )
@@ -400,7 +420,7 @@ class TransferPermissionTests(unittest.TestCase):
             )
         )
 
-    def test_admin_collection_from_accredited_is_reviewed_by_accredited(self):
+    def test_admin_collection_from_accredited_can_be_reviewed_by_admin_or_accredited(self):
         transfer = SimpleNamespace(
             operation_type=TransferType.collection,
             performed_by_id="admin-1",
@@ -427,7 +447,7 @@ class TransferPermissionTests(unittest.TestCase):
             ],
         )
 
-        self.assertFalse(
+        self.assertTrue(
             transfers_service._can_user_review_pending_transfer(
                 admin, transfer, source, destination
             )
@@ -522,7 +542,7 @@ class LedgerPostingTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def test_env_file_points_to_backend_dotenv(self):
         expected = config_module.BASE_DIR / ".env"
-        self.assertEqual(config_module.Settings.Config.env_file, expected)
+        self.assertEqual(config_module.Settings.model_config["env_file"], expected)
         self.assertEqual(expected.parent.name, "backend")
 
 

@@ -4,6 +4,7 @@ import 'core/security/device_security_gate.dart';
 import 'core/theme/app_theme.dart';
 import 'core/ui/app_loading_overlay.dart';
 import 'core/ui/app_notifier.dart';
+import 'core/widgets/app_background.dart';
 import 'features/admin/presentation/admin_dashboard_screen.dart';
 import 'features/auth/logic/auth_controller.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -18,7 +19,7 @@ class CashboxTransferApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authControllerProvider);
-    final isAdminApp = AppRuntimeConfig.isAdminApp;
+    final adminApp = AppRuntimeConfig.isAdminApp;
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -32,65 +33,40 @@ class CashboxTransferApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      builder: (context, child) {
-        final media = MediaQuery.of(context);
-        final width = media.size.width;
-        final textScale = width >= 1200
-            ? 1.03
-            : width >= 900
-            ? 1.01
-            : width >= 600
-            ? 1.0
-            : 1.0;
-
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: MediaQuery(
-            data: media.copyWith(textScaler: TextScaler.linear(textScale)),
-            child: AppLoadingOverlay(child: child!),
-          ),
-        );
-      },
+      builder: (context, child) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AppLoadingOverlay(child: child!),
+      ),
       home: authState.when(
+        loading: () => const _SplashScreen(),
+        error: (_, _) => LoginScreen(
+          mode: adminApp ? LoginMode.admin : LoginMode.operations,
+        ),
         data: (session) {
           if (session == null) {
             return LoginScreen(
-              mode: isAdminApp ? LoginMode.admin : LoginMode.operations,
+              mode: adminApp ? LoginMode.admin : LoginMode.operations,
             );
           }
-
-          if (isAdminApp) {
-            if (session.role != UserRole.admin) {
-              return const _RoleMismatchScreen(
-                title: 'صلاحية غير متاحة',
-                subtitle:
-                    'هذا التطبيق مخصص للأدمن فقط. استخدم تطبيق المعتمدين والوكلاء.',
-              );
-            }
-
-            return DeviceSecurityGate(
-              enabled: true,
-              child: AdminDashboardScreen(session: session),
-            );
-          }
-
-          if (session.role == UserRole.admin) {
+          if (adminApp && session.role != UserRole.admin) {
             return const _RoleMismatchScreen(
               title: 'صلاحية غير متاحة',
-              subtitle:
-                  'هذا التطبيق مخصص للمعتمدين والوكلاء. استخدم تطبيق الأدمن.',
+              subtitle: 'هذا التطبيق مخصص للأدمن فقط.',
             );
           }
-
+          if (!adminApp && session.role == UserRole.admin) {
+            return const _RoleMismatchScreen(
+              title: 'صلاحية غير متاحة',
+              subtitle: 'هذا التطبيق مخصص للوكلاء والمعتمدين.',
+            );
+          }
           return DeviceSecurityGate(
             enabled: true,
-            child: OperationsDashboardScreen(session: session),
+            child: adminApp
+                ? AdminDashboardScreen(session: session)
+                : OperationsDashboardScreen(session: session),
           );
         },
-        loading: () => const _SplashScreen(),
-        error: (_, _) => LoginScreen(
-          mode: isAdminApp ? LoginMode.admin : LoginMode.operations,
-        ),
       ),
     );
   }
@@ -101,7 +77,9 @@ class _SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      body: AppBackground(child: Center(child: CircularProgressIndicator())),
+    );
   }
 }
 
@@ -114,37 +92,35 @@ class _RoleMismatchScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.shield_outlined, size: 34),
-                  const SizedBox(height: 10),
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    subtitle,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppTheme.textMuted, height: 1.4),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        ref.read(authControllerProvider.notifier).logout(),
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text('تسجيل الخروج'),
-                  ),
-                ],
+      body: AppBackground(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Card(
+              margin: const EdgeInsets.all(18),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.admin_panel_settings_rounded, size: 42),
+                    const SizedBox(height: 12),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(subtitle, textAlign: TextAlign.center),
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          ref.read(authControllerProvider.notifier).logout(),
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text('تسجيل الخروج'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

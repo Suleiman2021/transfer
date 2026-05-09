@@ -2,7 +2,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.risk.models import RiskAlertSeverity
 
@@ -17,6 +17,8 @@ class RiskProfileUpsertRequest(BaseModel):
 
 
 class RiskProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     user_id: UUID
     daily_amount_limit: Decimal
@@ -27,11 +29,10 @@ class RiskProfileResponse(BaseModel):
     is_active: bool
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class RiskAlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     transfer_id: UUID
     user_id: UUID
@@ -41,6 +42,3 @@ class RiskAlertResponse(BaseModel):
     requires_review: bool
     resolved: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True

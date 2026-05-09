@@ -79,6 +79,7 @@ class AdminApi {
     DateTime? toDate,
     int limit = 200,
     int limitDays = 45,
+    bool trackActivity = true,
   }) async {
     final query = <String>['limit=$limit', 'limit_days=$limitDays'];
     if (fromDate != null) {
@@ -88,7 +89,11 @@ class AdminApi {
       query.add('to_date=${_yyyyMmDd(toDate)}');
     }
     final path = '/admin/users/$userId/report?${query.join('&')}';
-    final json = await ApiClient.getJson(path, token: token);
+    final json = await ApiClient.getJson(
+      path,
+      token: token,
+      trackActivity: trackActivity,
+    );
     return UserTransferReportModel.fromJson(json);
   }
 
@@ -255,6 +260,7 @@ class AdminApi {
     String? customerName,
     String? customerPhone,
     String? cashoutProfitPercent,
+    bool trackActivity = true,
   }) async {
     final idempotencyKey = 'tx-${DateTime.now().microsecondsSinceEpoch}';
 
@@ -282,7 +288,12 @@ class AdminApi {
       body['cashout_profit_percent'] = cashoutProfitPercent!.trim();
     }
 
-    final json = await ApiClient.postJson('/transfers/', body, token: token);
+    final json = await ApiClient.postJson(
+      '/transfers/',
+      body,
+      token: token,
+      trackActivity: trackActivity,
+    );
 
     return TransferModel.fromJson(json);
   }
@@ -292,10 +303,13 @@ class AdminApi {
     required String transferId,
     required bool approve,
     String? note,
+    String? approvalCode,
   }) async {
     final json = await ApiClient.postJson('/transfers/$transferId/review', {
       'action': approve ? 'approve' : 'reject',
       'note': note,
+      if ((approvalCode ?? '').trim().isNotEmpty)
+        'approval_code': approvalCode!.trim(),
     }, token: token);
     return TransferModel.fromJson(json);
   }

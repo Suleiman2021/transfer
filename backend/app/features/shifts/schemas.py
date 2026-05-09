@@ -2,7 +2,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.shifts.models import ShiftStatus
 
@@ -20,6 +20,8 @@ class ShiftCloseRequest(BaseModel):
 
 
 class CashboxShiftResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     cashbox_id: UUID
     opened_by_id: UUID
@@ -37,6 +39,3 @@ class CashboxShiftResponse(BaseModel):
 
     opened_at: datetime
     closed_at: datetime | None
-
-    class Config:
-        from_attributes = True

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../storage/api_endpoint_storage.dart';
 import '../ui/app_activity_bus.dart';
 import 'api_config.dart';
 import 'package:http/http.dart' as http;
@@ -15,7 +16,21 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
+  static const ApiEndpointStorage _endpointStorage = ApiEndpointStorage();
+
   static String get baseUrl => normalizeBaseUrl(kApiBaseUrl);
+
+  static Future<String> resolveBaseUrl() async {
+    try {
+      final savedBaseUrl = await _endpointStorage.readBaseUrl();
+      if (savedBaseUrl != null && savedBaseUrl.trim().isNotEmpty) {
+        return normalizeBaseUrl(savedBaseUrl);
+      }
+    } catch (_) {
+      return baseUrl;
+    }
+    return baseUrl;
+  }
 
   static String normalizeBaseUrl(String value) {
     var normalized = value.trim();
@@ -38,10 +53,10 @@ class ApiClient {
     String? token,
     bool trackActivity = true,
   }) async {
-    final response = await _send(() {
+    final response = await _send(() async {
       return http
           .post(
-            _buildUri(path),
+            await _buildUri(path),
             headers: {
               'Content-Type': 'application/json',
               if (token != null) 'Authorization': 'Bearer $token',
@@ -59,21 +74,23 @@ class ApiClient {
     String? token,
     bool trackActivity = true,
   }) async {
-    final response = await _send(() {
+    final response = await _send(() async {
       return http
           .get(
-            _buildUri(path),
+            await _buildUri(path),
             headers: {if (token != null) 'Authorization': 'Bearer $token'},
           )
           .timeout(const Duration(seconds: 20));
     }, trackActivity: trackActivity);
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      final parsed = jsonDecode(response.body);
+      final parsed = _tryDecodeJson(response);
       if (parsed is List<dynamic>) {
         return parsed;
       }
-      throw ApiException('استجابة غير متوقعة من الخادم.');
+      throw ApiException(
+        _unexpectedResponseMessage(response, expected: 'قائمة بيانات'),
+      );
     }
 
     throw ApiException(_extractErrorMessage(response));
@@ -84,10 +101,10 @@ class ApiClient {
     String? token,
     bool trackActivity = true,
   }) async {
-    final response = await _send(() {
+    final response = await _send(() async {
       return http
           .get(
-            _buildUri(path),
+            await _buildUri(path),
             headers: {if (token != null) 'Authorization': 'Bearer $token'},
           )
           .timeout(const Duration(seconds: 20));
@@ -101,10 +118,10 @@ class ApiClient {
     String? token,
     bool trackActivity = true,
   }) async {
-    final response = await _send(() {
+    final response = await _send(() async {
       return http
           .delete(
-            _buildUri(path),
+            await _buildUri(path),
             headers: {if (token != null) 'Authorization': 'Bearer $token'},
           )
           .timeout(const Duration(seconds: 20));
@@ -113,9 +130,10 @@ class ApiClient {
     return _decodeResponse(response);
   }
 
-  static Uri _buildUri(String path) {
+  static Future<Uri> _buildUri(String path) async {
     final normalizedPath = path.startsWith('/') ? path : '/$path';
-    return Uri.parse('$baseUrl$normalizedPath');
+    final currentBaseUrl = await resolveBaseUrl();
+    return Uri.parse('$currentBaseUrl$normalizedPath');
   }
 
   static Future<http.Response> _send(
@@ -153,19 +171,46 @@ class ApiClient {
 
   static Map<String, dynamic> _decodeResponse(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      final parsed = jsonDecode(response.body);
+      final parsed = _tryDecodeJson(response);
       if (parsed is Map<String, dynamic>) {
         return parsed;
       }
-      throw ApiException('استجابة الخادم غير متوقعة.');
+      throw ApiException(
+        _unexpectedResponseMessage(response, expected: 'بيانات عملية'),
+      );
     }
 
     throw ApiException(_extractErrorMessage(response));
   }
 
+  static dynamic _tryDecodeJson(http.Response response) {
+    final body = response.body.trim();
+    if (body.isEmpty) return null;
+    try {
+      return jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static String _unexpectedResponseMessage(
+    http.Response response, {
+    required String expected,
+  }) {
+    final contentType = response.headers['content-type'] ?? 'غير معروف';
+    final body = response.body.trim();
+    if (body.isEmpty) {
+      return 'رد الخادم فارغ. كان متوقعًا $expected.';
+    }
+    if (body.startsWith('<!DOCTYPE') || body.startsWith('<html')) {
+      return 'رد الخادم صفحة HTML وليس بيانات API. تحقق من رابط API أو ngrok.';
+    }
+    return 'رد الخادم غير متوقع. كان متوقعًا $expected، ونوع الرد: $contentType.';
+  }
+
   static String _extractErrorMessage(http.Response response) {
     try {
-      final parsed = jsonDecode(response.body);
+      final parsed = _tryDecodeJson(response);
       if (parsed is Map<String, dynamic>) {
         final detail = parsed['detail'];
         if (detail is String && detail.isNotEmpty) {
@@ -209,6 +254,16 @@ class ApiClient {
       'Transfer is not pending review':
           'لا يمكن مراجعة هذا الطلب لأنه ليس بانتظار الموافقة.',
       'Transfer not found': 'طلب التحويل غير موجود.',
+      'Invalid transfer approval code': 'رمز اعتماد الحوالة غير صحيح.',
+      'Transfer approval code is required': 'رمز اعتماد الحوالة مطلوب.',
+      'Only completed transfers can be cancelled':
+          'يمكن إلغاء العمليات المكتملة فقط.',
+      'Only admin can cancel completed transfers':
+          'إلغاء العمليات المكتملة متاح للأدمن فقط.',
+      'Cannot cancel transfer because destination balance is not enough':
+          'لا يمكن إلغاء العملية لأن رصيد صندوق الاستلام غير كافٍ لعكسها.',
+      'Cannot cancel transfer because treasury balance is not enough':
+          'لا يمكن إلغاء العملية لأن رصيد الخزنة غير كافٍ لعكس العمولة.',
       'Unsupported transfer type': 'نوع العملية غير مدعوم.',
       'Customer name and phone are required for customer cashout':
           'اسم العميل ورقم الهاتف مطلوبان لعملية صرف العميل.',
@@ -238,6 +293,8 @@ class ApiClient {
           'يجب أن تستهدف التعبئة أحد صناديقك المعتمدة.',
       'Collection request must start from one of your accredited cashboxes':
           'يجب أن يبدأ التحصيل من أحد صناديقك المعتمدة.',
+      'Only admin can move balances directly between treasury and agent cashboxes':
+          'نقل الرصيد مباشرة بين الخزنة وصندوق الوكيل متاح للأدمن فقط.',
       'Invalid commission configuration for this transfer':
           'إعدادات العمولة لهذه العملية غير صالحة.',
       'Ledger entry must be balanced': 'خطأ محاسبي: قيد اليومية غير متوازن.',

@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.cashboxes.models import CashboxType
 
@@ -17,6 +17,8 @@ class CashboxCreateRequest(BaseModel):
 
 
 class CashboxResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     city: str
@@ -27,6 +29,3 @@ class CashboxResponse(BaseModel):
     balance: Decimal
     is_active: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True

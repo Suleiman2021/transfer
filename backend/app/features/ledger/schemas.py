@@ -2,12 +2,14 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.features.ledger.models import LedgerAccountType
 
 
 class LedgerAccountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     code: str
     name: str
@@ -17,22 +19,20 @@ class LedgerAccountResponse(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class LedgerLineResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     account_id: UUID
     debit: Decimal
     credit: Decimal
     currency: str
 
-    class Config:
-        from_attributes = True
-
 
 class LedgerEntryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     transfer_id: UUID | None
     reference_type: str
@@ -41,9 +41,6 @@ class LedgerEntryResponse(BaseModel):
     created_by_id: UUID
     created_at: datetime
     lines: list[LedgerLineResponse]
-
-    class Config:
-        from_attributes = True
 
 
 class TrialBalanceRowResponse(BaseModel):

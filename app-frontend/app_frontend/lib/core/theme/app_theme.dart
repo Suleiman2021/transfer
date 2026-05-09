@@ -1,24 +1,32 @@
 import 'package:flutter/material.dart';
 
+import 'app_theme_tokens.dart';
+
 class AppTheme {
-  static const Color brandInk = Color(0xFF241542);
-  static const Color brandTeal = Color(0xFF6A38F2);
-  static const Color brandCoral = Color(0xFF9157F8);
-  static const Color brandPlum = Color(0xFF7C3AED);
-  static const Color brandGold = Color(0xFFC58BFF);
-  static const Color brandSky = Color(0xFFE8D9FF);
-  static const Color panel = Color(0xFFF6F1FF);
-  static const Color textDark = Color(0xFF23193D);
-  static const Color textMuted = Color(0xFF5E4F83);
-  static const Color textSoft = Color(0xFF7D70A2);
-  static const Color glassTint = Color(0xFFF9F4FF);
-  static const Color glassLine = Color(0xFFB995FF);
-  static const Color noticeSuccess = Color(0xFF1F9D63);
-  static const Color noticeError = Color(0xFFD14343);
-  static const Color noticeWarning = Color(0xFFE68619);
-  static const BorderRadius snackRadius = BorderRadius.all(Radius.circular(14));
-  static const BorderRadius panelRadius = BorderRadius.all(Radius.circular(22));
-  static const BorderRadius tileRadius = BorderRadius.all(Radius.circular(18));
+  static const Color brandInk = AppThemeTokens.ink;
+  static const Color brandTeal = AppThemeTokens.primary;
+  static const Color brandCoral = AppThemeTokens.blue;
+  static const Color brandPlum = AppThemeTokens.violet;
+  static const Color brandGold = AppThemeTokens.amber;
+  static const Color brandSky = AppThemeTokens.mint;
+  static const Color panel = AppThemeTokens.canvas;
+  static const Color textDark = AppThemeTokens.ink;
+  static const Color textMuted = AppThemeTokens.inkSoft;
+  static const Color textSoft = AppThemeTokens.inkMuted;
+  static const Color glassTint = AppThemeTokens.surfaceAlt;
+  static const Color glassLine = AppThemeTokens.line;
+  static const Color noticeSuccess = AppThemeTokens.primary;
+  static const Color noticeError = AppThemeTokens.red;
+  static const Color noticeWarning = AppThemeTokens.amber;
+  static const BorderRadius snackRadius = BorderRadius.all(
+    Radius.circular(AppThemeTokens.radiusSm),
+  );
+  static const BorderRadius panelRadius = BorderRadius.all(
+    Radius.circular(AppThemeTokens.radiusSm),
+  );
+  static const BorderRadius tileRadius = BorderRadius.all(
+    Radius.circular(AppThemeTokens.radiusSm),
+  );
 
   static ThemeData light() {
     final scheme =
@@ -28,16 +36,21 @@ class AppTheme {
         ).copyWith(
           primary: brandTeal,
           secondary: brandCoral,
-          surface: Colors.white,
           tertiary: brandGold,
+          surface: Colors.white,
+          surfaceContainerHighest: AppThemeTokens.surfaceAlt,
           onSurface: textDark,
+          error: noticeError,
         );
 
-    return ThemeData(
+    final base = ThemeData(
       useMaterial3: true,
       fontFamily: 'Cairo',
       visualDensity: VisualDensity.adaptivePlatformDensity,
       colorScheme: scheme,
+    );
+
+    return base.copyWith(
       scaffoldBackgroundColor: panel,
       iconTheme: const IconThemeData(size: 20, color: textDark),
       appBarTheme: const AppBarTheme(
@@ -55,133 +68,131 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.white,
+        backgroundColor: textDark,
         elevation: 0,
         insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         contentTextStyle: const TextStyle(
-          color: textDark,
+          color: Colors.white,
           fontWeight: FontWeight.w700,
           height: 1.35,
         ),
         shape: const RoundedRectangleBorder(borderRadius: snackRadius),
       ),
       cardTheme: CardThemeData(
-        color: Colors.white.withValues(alpha: 0.90),
+        color: Colors.white,
         elevation: 0,
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: panelRadius,
-          side: BorderSide(color: glassLine.withValues(alpha: 0.16)),
+          side: const BorderSide(color: glassLine),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: Colors.white.withValues(alpha: 0.97),
+        backgroundColor: Colors.white,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusMd),
+          side: const BorderSide(color: glassLine),
+        ),
       ),
-      bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: Colors.white.withValues(alpha: 0.97),
-        modalBackgroundColor: Colors.white.withValues(alpha: 0.97),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Colors.white,
+        modalBackgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppThemeTokens.radiusLg),
+          ),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: Colors.white.withValues(alpha: 0.86),
-        indicatorColor: brandSky.withValues(alpha: 0.7),
+        backgroundColor: Colors.white,
+        indicatorColor: brandSky,
         surfaceTintColor: Colors.transparent,
+        height: 66,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) {
-            return const TextStyle(
-              fontFamily: 'Cairo',
-              fontWeight: FontWeight.w800,
-              fontSize: 12.2,
-              color: textDark,
-            );
-          }
-          return const TextStyle(
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
             fontFamily: 'Cairo',
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
-            color: textMuted,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+            fontSize: selected ? 12.2 : 12,
+            color: selected ? textDark : textMuted,
           );
         }),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.92),
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
+          horizontal: 13,
           vertical: 12,
         ),
         labelStyle: const TextStyle(
-          color: Color(0xFF4C3E6E),
-          fontWeight: FontWeight.w600,
-          fontSize: 13.5,
+          color: textMuted,
+          fontWeight: FontWeight.w700,
+          fontSize: 13.2,
         ),
         hintStyle: const TextStyle(
-          color: Color(0xFF7C71A3),
+          color: textSoft,
           fontWeight: FontWeight.w500,
         ),
         errorStyle: const TextStyle(
-          color: Color(0xFFCB3A31),
+          color: noticeError,
           fontWeight: FontWeight.w700,
           fontSize: 12,
           height: 1.25,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+          borderSide: const BorderSide(color: glassLine),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: brandTeal.withValues(alpha: 0.14)),
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+          borderSide: const BorderSide(color: glassLine),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: brandTeal, width: 1.6),
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+          borderSide: const BorderSide(color: brandTeal, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFFCB3A31), width: 1.2),
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+          borderSide: const BorderSide(color: noticeError, width: 1.2),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFFCB3A31), width: 1.6),
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+          borderSide: const BorderSide(color: noticeError, width: 1.5),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: brandTeal,
-          foregroundColor: Colors.white,
-          elevation: 2,
-          shadowColor: brandTeal.withValues(alpha: 0.28),
+          foregroundColor: textDark,
+          elevation: 0,
           minimumSize: const Size.fromHeight(44),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
           ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: brandInk,
-          side: BorderSide(color: brandInk.withValues(alpha: 0.12)),
+          side: const BorderSide(color: glassLine),
           minimumSize: const Size.fromHeight(42),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
           ),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(42),
-          backgroundColor: brandCoral.withValues(alpha: 0.16),
+          backgroundColor: brandSky,
           foregroundColor: brandInk,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         ),
@@ -190,78 +201,79 @@ class AppTheme {
         backgroundColor: Colors.white,
         selectedColor: brandSky,
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: const BorderSide(color: glassLine),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+        ),
       ),
-      dividerTheme: DividerThemeData(color: brandInk.withValues(alpha: 0.08)),
+      dividerTheme: const DividerThemeData(color: glassLine),
       menuTheme: MenuThemeData(
         style: MenuStyle(
-          backgroundColor: WidgetStatePropertyAll(
-            Colors.white.withValues(alpha: 0.98),
-          ),
-          side: WidgetStatePropertyAll(
-            BorderSide(color: brandTeal.withValues(alpha: 0.16)),
-          ),
+          backgroundColor: const WidgetStatePropertyAll(Colors.white),
+          side: const WidgetStatePropertyAll(BorderSide(color: glassLine)),
           shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+            ),
           ),
         ),
       ),
-      textTheme: const TextTheme(
-        headlineLarge: TextStyle(
-          fontSize: 30,
+      textTheme: base.textTheme.copyWith(
+        headlineLarge: const TextStyle(
+          fontSize: 28,
           fontWeight: FontWeight.w800,
           color: textDark,
           height: 1.18,
         ),
-        headlineMedium: TextStyle(
-          fontSize: 24,
+        headlineMedium: const TextStyle(
+          fontSize: 23,
           fontWeight: FontWeight.w800,
           color: textDark,
           height: 1.2,
         ),
-        titleLarge: TextStyle(
-          fontSize: 19,
+        titleLarge: const TextStyle(
+          fontSize: 18,
           fontWeight: FontWeight.w800,
           color: textDark,
           height: 1.25,
         ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
+        titleMedium: const TextStyle(
+          fontSize: 15.5,
+          fontWeight: FontWeight.w800,
           color: textDark,
           height: 1.27,
         ),
-        titleSmall: TextStyle(
-          fontSize: 14.5,
-          fontWeight: FontWeight.w700,
+        titleSmall: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
           color: textDark,
           height: 1.27,
         ),
-        bodyLarge: TextStyle(
+        bodyLarge: const TextStyle(
           fontSize: 15,
           color: textDark,
           height: 1.42,
           fontWeight: FontWeight.w500,
         ),
-        bodyMedium: TextStyle(
+        bodyMedium: const TextStyle(
           fontSize: 14,
           color: textDark,
           height: 1.45,
           fontWeight: FontWeight.w500,
         ),
-        bodySmall: TextStyle(
+        bodySmall: const TextStyle(
           fontSize: 12.5,
           color: textMuted,
           height: 1.4,
           fontWeight: FontWeight.w500,
         ),
-        labelLarge: TextStyle(
-          fontWeight: FontWeight.w700,
+        labelLarge: const TextStyle(
+          fontWeight: FontWeight.w800,
           fontSize: 14,
           height: 1.2,
         ),
-        labelMedium: TextStyle(
-          fontWeight: FontWeight.w700,
+        labelMedium: const TextStyle(
+          fontWeight: FontWeight.w800,
           fontSize: 12,
           height: 1.2,
         ),
@@ -269,29 +281,16 @@ class AppTheme {
     );
   }
 
-  static BoxDecoration sectionCardDecoration({double radius = 22}) {
+  static BoxDecoration sectionCardDecoration({double radius = 8}) {
     return BoxDecoration(
+      color: Colors.white,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: glassLine.withValues(alpha: 0.18)),
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.94),
-          glassTint.withValues(alpha: 0.82),
-          panel.withValues(alpha: 0.66),
-        ],
-      ),
+      border: Border.all(color: glassLine),
       boxShadow: [
         BoxShadow(
-          color: brandInk.withValues(alpha: 0.08),
-          blurRadius: 22,
-          offset: const Offset(0, 12),
-        ),
-        BoxShadow(
-          color: Colors.white.withValues(alpha: 0.52),
-          blurRadius: 8,
-          offset: const Offset(0, -2),
+          color: brandInk.withValues(alpha: 0.045),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
         ),
       ],
     );
@@ -299,22 +298,14 @@ class AppTheme {
 
   static BoxDecoration metricCardDecoration({required Color accent}) {
     return BoxDecoration(
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: accent.withValues(alpha: 0.28)),
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.96),
-          accent.withValues(alpha: 0.12),
-          accent.withValues(alpha: 0.05),
-        ],
-      ),
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(AppThemeTokens.radiusSm),
+      border: Border.all(color: accent.withValues(alpha: 0.22)),
       boxShadow: [
         BoxShadow(
-          color: accent.withValues(alpha: 0.12),
-          blurRadius: 16,
-          offset: const Offset(0, 8),
+          color: brandInk.withValues(alpha: 0.04),
+          blurRadius: 14,
+          offset: const Offset(0, 7),
         ),
       ],
     );
@@ -322,36 +313,28 @@ class AppTheme {
 
   static BoxDecoration tileDecoration() {
     return BoxDecoration(
+      color: Colors.white,
       borderRadius: tileRadius,
-      border: Border.all(color: glassLine.withValues(alpha: 0.18)),
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.95),
-          glassTint.withValues(alpha: 0.82),
-          panel.withValues(alpha: 0.64),
-        ],
-      ),
+      border: Border.all(color: glassLine),
       boxShadow: [
         BoxShadow(
-          color: brandInk.withValues(alpha: 0.06),
-          blurRadius: 16,
-          offset: const Offset(0, 8),
+          color: brandInk.withValues(alpha: 0.035),
+          blurRadius: 12,
+          offset: const Offset(0, 6),
         ),
       ],
     );
   }
 
   static const LinearGradient shellGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [Color(0xFFF7F2FF), Color(0xFFEDE1FF), Color(0xFFE7D7FF)],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFFFF7EF), Color(0xFFFFF3E8), Color(0xFFFFE9D6)],
   );
 
   static const LinearGradient heroGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF2E1463), Color(0xFF6A38F2), Color(0xFFA86BFF)],
+    colors: [Color(0xFFFF7A1A), Color(0xFFFF9F2E), Color(0xFFFFC266)],
   );
 }

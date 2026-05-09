@@ -1,13 +1,9 @@
 import '../../features/auth/logic/auth_controller.dart';
-import '../theme/app_theme.dart';
-import '../widgets/app_shell_background.dart';
-import '../widgets/responsive_frame.dart';
+import '../widgets/app_background.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_auth/local_auth.dart';
-
-enum DeviceCheckStatus { success, failed, unavailable }
 
 class DeviceSecurityGate extends ConsumerStatefulWidget {
   const DeviceSecurityGate({
@@ -25,182 +21,119 @@ class DeviceSecurityGate extends ConsumerStatefulWidget {
 
 class _DeviceSecurityGateState extends ConsumerState<DeviceSecurityGate> {
   final LocalAuthentication _auth = LocalAuthentication();
-
   bool _checking = true;
-  DeviceCheckStatus? _status;
+  bool _passed = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusManager.instance.primaryFocus?.unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    });
-    _verifyDeviceAuth();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _verify());
   }
 
-  Future<void> _verifyDeviceAuth() async {
+  Future<void> _verify() async {
     FocusManager.instance.primaryFocus?.unfocus();
     SystemChannels.textInput.invokeMethod('TextInput.hide');
-
     if (!widget.enabled) {
-      if (!mounted) return;
       setState(() {
-        _status = DeviceCheckStatus.success;
         _checking = false;
+        _passed = true;
       });
       return;
     }
-
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
     try {
-      final canUseBiometrics = await _auth.canCheckBiometrics;
-      final isSupported = await _auth.isDeviceSupported();
-
-      if (!canUseBiometrics && !isSupported) {
-        if (!mounted) return;
+      final supported = await _auth.isDeviceSupported();
+      final canBiometric = await _auth.canCheckBiometrics;
+      if (!supported && !canBiometric) {
         setState(() {
-          _status = DeviceCheckStatus.unavailable;
           _checking = false;
+          _error = 'فعّل قفل الشاشة أو البصمة من إعدادات الهاتف.';
         });
         return;
       }
-
-      final didAuthenticate = await _auth.authenticate(
+      final ok = await _auth.authenticate(
         localizedReason: 'أكّد هويتك ببصمة الإصبع أو قفل الهاتف',
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
+        options: const AuthenticationOptions(stickyAuth: true),
       );
-
       if (!mounted) return;
       setState(() {
-        _status = didAuthenticate
-            ? DeviceCheckStatus.success
-            : DeviceCheckStatus.failed;
         _checking = false;
+        _passed = ok;
+        _error = ok ? null : 'لم يتم التحقق من هوية الجهاز.';
       });
-    } on PlatformException {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _status = DeviceCheckStatus.unavailable;
         _checking = false;
+        _error = 'تعذر تشغيل تحقق الجهاز.';
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
-      return _buildShell(
-        context,
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: CircularProgressIndicator(strokeWidth: 2.3),
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'جاري التحقق من هوية الجهاز...',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_status == DeviceCheckStatus.success) {
-      return widget.child;
-    }
-
-    final unavailable = _status == DeviceCheckStatus.unavailable;
-    final title = unavailable ? 'قفل الجهاز غير متاح' : 'تعذر التحقق من الهوية';
-    final subtitle = unavailable
-        ? 'يرجى تفعيل بصمة الإصبع أو قفل الشاشة في إعدادات الهاتف.'
-        : 'لم يتم التحقق من هوية الجهاز. أعد المحاولة للمتابعة.';
-
-    return _buildShell(
-      context,
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.phonelink_lock_rounded, size: 34),
-              const SizedBox(height: 10),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleLarge,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                subtitle,
-                style: const TextStyle(color: AppTheme.textMuted, height: 1.4),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () {
-                      setState(() => _checking = true);
-                      _verifyDeviceAuth();
-                    },
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('إعادة المحاولة'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () =>
-                        ref.read(authControllerProvider.notifier).logout(),
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text('تسجيل الخروج'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShell(BuildContext context, Widget child) {
+    if (_passed) return widget.child;
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      body: AppShellBackground(
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14,
+      body: AppBackground(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: Card(
+              margin: const EdgeInsets.all(18),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _checking
+                          ? Icons.fingerprint_rounded
+                          : Icons.phonelink_lock_rounded,
+                      size: 44,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _checking ? 'جاري التحقق من الجهاز' : 'تحقق الجهاز',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _checking
+                          ? 'يرجى إكمال التحقق للمتابعة.'
+                          : (_error ?? 'أعد المحاولة للمتابعة.'),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 14),
+                    if (_checking)
+                      const CircularProgressIndicator()
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: _verify,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('إعادة المحاولة'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => ref
+                                .read(authControllerProvider.notifier)
+                                .logout(),
+                            icon: const Icon(Icons.logout_rounded),
+                            label: const Text('خروج'),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight - 28,
-                  ),
-                  child: Center(
-                    child: ResponsiveFrame(maxWidth: 440, child: child),
-                  ),
-                ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),

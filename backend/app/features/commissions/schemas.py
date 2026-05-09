@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.features.users.models import UserRole
 
@@ -69,6 +69,8 @@ class CommissionRuleUpsertRequest(BaseModel):
 
 
 class CommissionRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     role: UserRole
     internal_fee_percent: Decimal
@@ -82,6 +84,3 @@ class CommissionRuleResponse(BaseModel):
     agent_topup_profit_percent: Decimal
     is_active: bool
     updated_at: datetime | None
-
-    class Config:
-        from_attributes = True

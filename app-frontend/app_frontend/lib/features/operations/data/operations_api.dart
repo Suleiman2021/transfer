@@ -118,10 +118,13 @@ class OperationsApi {
     required String transferId,
     required bool approve,
     String? note,
+    String? approvalCode,
   }) async {
     final json = await ApiClient.postJson('/transfers/$transferId/review', {
       'action': approve ? 'approve' : 'reject',
       'note': note,
+      if ((approvalCode ?? '').trim().isNotEmpty)
+        'approval_code': approvalCode!.trim(),
     }, token: token);
 
     return TransferModel.fromJson(json);

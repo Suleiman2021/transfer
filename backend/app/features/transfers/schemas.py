@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.features.cashboxes.models import CashboxType
 from app.features.transfers.models import TransferState, TransferType
@@ -60,6 +60,15 @@ class TransferReviewAction(str, enum.Enum):
 class TransferReviewRequest(BaseModel):
     action: TransferReviewAction
     note: str | None = Field(default=None, max_length=500)
+    approval_code: str | None = Field(default=None, min_length=4, max_length=12)
+
+    @field_validator("approval_code")
+    @classmethod
+    def normalize_approval_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(ch for ch in value.strip() if ch.isdigit())
+        return normalized or None
 
 
 class TransferCancelRequest(BaseModel):
@@ -67,6 +76,8 @@ class TransferCancelRequest(BaseModel):
 
 
 class TransferResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     from_cashbox_id: UUID
     to_cashbox_id: UUID
@@ -101,6 +112,8 @@ class TransferResponse(BaseModel):
 
     risk_score: Decimal
     review_required: bool
+    approval_code_required: bool
+    approval_code: str | None = None
     reviewed_by_id: UUID | None
     reviewed_at: datetime | None
     review_note: str | None
@@ -108,9 +121,6 @@ class TransferResponse(BaseModel):
     performed_by_id: UUID
     note: str | None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class DailyTransferReportRow(BaseModel):
@@ -125,6 +135,8 @@ class DailyTransferReportRow(BaseModel):
 
 
 class TransferStateLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     transfer_id: UUID
     state: TransferState
@@ -132,6 +144,3 @@ class TransferStateLogResponse(BaseModel):
     reason: str | None
     context: dict | None
     created_at: datetime
-
-    class Config:
-        from_attributes = True

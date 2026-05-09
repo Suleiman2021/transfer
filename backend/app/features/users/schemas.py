@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.users.models import UserRole
 
@@ -16,6 +16,8 @@ class UserCreateRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     username: str
     full_name: str
@@ -24,6 +26,3 @@ class UserResponse(BaseModel):
     country: str
     is_active: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True

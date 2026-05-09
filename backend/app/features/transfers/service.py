@@ -1,3 +1,4 @@
+import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
@@ -6,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password, verify_password
 from app.features.cashboxes.models import Cashbox, CashboxType
 from app.features.commissions.service import (
     get_commission_values,
@@ -32,6 +34,7 @@ from app.features.users.models import User, UserRole
 
 MONEY_QUANT = Decimal("0.01")
 RATE_QUANT = Decimal("0.000001")
+APPROVAL_CODE_LENGTH = 6
 
 
 
@@ -77,6 +80,39 @@ def _normalize_optional_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _generate_approval_code() -> str:
+    upper_bound = 10**APPROVAL_CODE_LENGTH
+    return str(secrets.randbelow(upper_bound)).zfill(APPROVAL_CODE_LENGTH)
+
+
+def _normalize_approval_code(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = "".join(ch for ch in value.strip() if ch.isdigit())
+    return normalized or None
+
+
+def _attach_approval_code(transfer: Transfer) -> str:
+    code = _generate_approval_code()
+    transfer.approval_code_required = True
+    transfer.approval_code_hash = hash_password(code)
+    transfer._approval_code = code
+    return code
+
+
+def _verify_transfer_approval_code(transfer: Transfer, code: str | None) -> bool:
+    normalized = _normalize_approval_code(code)
+    if not normalized or not transfer.approval_code_hash:
+        return False
+    return verify_password(normalized, transfer.approval_code_hash)
+
+
+def _clear_transfer_approval_code(transfer: Transfer) -> None:
+    transfer.approval_code_required = False
+    transfer.approval_code_hash = None
+    transfer._approval_code = None
 
 
 def _get_locked_cashbox(db: Session, cashbox_id: UUID) -> Cashbox | None:
@@ -370,6 +406,9 @@ def _is_review_from_source_side(
 
 
 def _can_user_review_pending_transfer(user: User, transfer: Transfer, source: Cashbox, destination: Cashbox) -> bool:
+    if user.role == UserRole.admin:
+        return True
+
     review_from_source_side = _is_review_from_source_side(
         operation_type=transfer.operation_type,
         performed_by_id=transfer.performed_by_id,
@@ -592,6 +631,8 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
         performed_by_id=performer.id,
         note=transfer_note,
     )
+    if review_required:
+        _attach_approval_code(transfer)
 
     db.add(transfer)
     db.flush()
@@ -620,6 +661,7 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
             "cashout_profit_amount": str(cashout_profit_amount),
             "customer_name": customer_name,
             "customer_phone": customer_phone,
+            "approval_code_required": transfer.approval_code_required,
         },
     )
 
@@ -688,6 +730,7 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
 
     if payload.action == TransferReviewAction.reject:
         transfer.state = TransferState.rejected
+        _clear_transfer_approval_code(transfer)
         _append_state_log(
             db,
             transfer,
@@ -699,7 +742,17 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
         db.refresh(transfer)
         return transfer
 
+    if transfer.approval_code_required and not _verify_transfer_approval_code(
+        transfer,
+        payload.approval_code,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid transfer approval code",
+        )
+
     transfer.state = TransferState.approved
+    _clear_transfer_approval_code(transfer)
     _append_state_log(
         db,
         transfer,
@@ -760,13 +813,15 @@ def _apply_transfer_cancellation(db: Session, transfer: Transfer) -> tuple[Cashb
         )
     destination.balance = _q_money(destination_balance - amount)
 
-    treasury_balance = _q_money(Decimal(treasury.balance))
-    if treasury_balance < commission_amount:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot cancel transfer because treasury balance is not enough",
-        )
-    treasury.balance = _q_money(treasury_balance - commission_amount)
+    source_is_treasury = source.id == treasury.id
+    if not source_is_treasury:
+        treasury_balance = _q_money(Decimal(treasury.balance))
+        if treasury_balance < commission_amount:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot cancel transfer because treasury balance is not enough",
+            )
+        treasury.balance = _q_money(treasury_balance - commission_amount)
 
     source.balance = _q_money(Decimal(source.balance) + amount + commission_amount)
     return source, destination, treasury

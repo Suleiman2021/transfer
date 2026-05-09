@@ -227,6 +227,8 @@ class TransferModel {
     required this.customerPhone,
     required this.state,
     required this.reviewRequired,
+    required this.approvalCodeRequired,
+    required this.approvalCode,
     required this.riskScore,
   });
 
@@ -253,6 +255,8 @@ class TransferModel {
   final String? customerPhone;
   final String state;
   final bool reviewRequired;
+  final bool approvalCodeRequired;
+  final String? approvalCode;
   final String riskScore;
 
   double get amountValue => double.tryParse(amount) ?? 0;
@@ -299,6 +303,8 @@ class TransferModel {
       customerPhone: json['customer_phone'] as String?,
       state: (json['state'] as String?) ?? 'completed',
       reviewRequired: (json['review_required'] as bool?) ?? false,
+      approvalCodeRequired: (json['approval_code_required'] as bool?) ?? false,
+      approvalCode: json['approval_code'] as String?,
       riskScore: json['risk_score']?.toString() ?? '0',
     );
   }
