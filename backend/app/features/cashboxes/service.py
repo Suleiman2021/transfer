@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.features.cashboxes.models import Cashbox, CashboxType
-from app.features.cashboxes.schemas import CashboxCreateRequest
+from app.features.cashboxes.schemas import CashboxCreateRequest, CashboxUpdateRequest
 from app.features.ledger.service import ensure_cashbox_ledger_account
 from app.features.transfers.models import Transfer, TransferState, TransferType
 from app.features.users.models import User, UserRole
@@ -144,6 +144,29 @@ def list_cashboxes(db: Session, only_active: bool = True) -> list[Cashbox]:
     if only_active:
         query = query.filter(Cashbox.is_active == True)
     return query.all()
+
+
+def update_cashbox_by_admin(db: Session, cashbox_id, data: CashboxUpdateRequest, actor: User) -> Cashbox:
+    cashbox = db.query(Cashbox).filter(Cashbox.id == cashbox_id).first()
+    if not cashbox:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
+
+    if data.name is not None:
+        name = data.name.strip()
+        exists = db.query(Cashbox).filter(Cashbox.name == name, Cashbox.id != cashbox.id).first()
+        if exists:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cashbox name already exists")
+        cashbox.name = name
+    if data.city is not None:
+        cashbox.city = data.city.strip().lower()
+    if data.country is not None:
+        cashbox.country = data.country.strip().lower()
+    if data.is_active is not None:
+        cashbox.is_active = data.is_active
+
+    db.commit()
+    db.refresh(cashbox)
+    return cashbox
 
 
 

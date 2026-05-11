@@ -36,6 +36,7 @@ class AdminApi {
     required UserRole role,
     required String city,
     required String country,
+    String? phone,
     required String password,
   }) async {
     final json = await ApiClient.postJson('/admin/users', {
@@ -44,6 +45,37 @@ class AdminApi {
       'role': roleApiValue(role),
       'city': city.trim().toLowerCase(),
       'country': country.trim().toLowerCase(),
+      if ((phone ?? '').trim().isNotEmpty) 'phone': phone!.trim(),
+      'password': password,
+    }, token: token);
+    return AppUser.fromJson(json);
+  }
+
+  Future<AppUser> updateUser({
+    required String token,
+    required String userId,
+    required String username,
+    required String fullName,
+    required String city,
+    required String country,
+    String? phone,
+  }) async {
+    final json = await ApiClient.patchJson('/admin/users/$userId', {
+      'username': username.trim().toLowerCase(),
+      'full_name': fullName.trim(),
+      'city': city.trim().toLowerCase(),
+      'country': country.trim().toLowerCase(),
+      'phone': (phone ?? '').trim(),
+    }, token: token);
+    return AppUser.fromJson(json);
+  }
+
+  Future<AppUser> resetUserPassword({
+    required String token,
+    required String userId,
+    required String password,
+  }) async {
+    final json = await ApiClient.patchJson('/admin/users/$userId/password', {
       'password': password,
     }, token: token);
     return AppUser.fromJson(json);
@@ -129,6 +161,41 @@ class AdminApi {
       'opening_balance': openingBalance,
     }, token: token);
     return CashboxModel.fromJson(json);
+  }
+
+  Future<CashboxModel> updateCashbox({
+    required String token,
+    required String cashboxId,
+    required String name,
+    required String city,
+    required String country,
+    bool? isActive,
+  }) async {
+    final body = <String, dynamic>{
+      'name': name.trim(),
+      'city': city.trim().toLowerCase(),
+      'country': country.trim().toLowerCase(),
+    };
+    if (isActive != null) {
+      body['is_active'] = isActive;
+    }
+    final json = await ApiClient.patchJson(
+      '/admin/cashboxes/$cashboxId',
+      body,
+      token: token,
+    );
+    return CashboxModel.fromJson(json);
+  }
+
+  Future<AppUser> resolveUserCode({
+    required String token,
+    required String code,
+  }) async {
+    final json = await ApiClient.getJson(
+      '/auth/users/resolve-code?code=${Uri.encodeQueryComponent(code.trim())}',
+      token: token,
+    );
+    return AppUser.fromJson(json);
   }
 
   Future<List<CommissionRuleModel>> fetchCommissions(

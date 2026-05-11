@@ -34,6 +34,7 @@ class AuthSession {
     required this.role,
     required this.city,
     required this.country,
+    required this.phone,
     required this.username,
   });
 
@@ -43,6 +44,7 @@ class AuthSession {
   final UserRole role;
   final String city;
   final String country;
+  final String? phone;
   final String username;
 
   factory AuthSession.fromLoginJson(
@@ -56,6 +58,7 @@ class AuthSession {
       role: roleFromString(json['role'] as String?),
       city: (json['city'] as String?) ?? '-',
       country: (json['country'] as String?) ?? '-',
+      phone: json['phone'] as String?,
       username: username,
     );
   }
@@ -68,6 +71,7 @@ class AuthSession {
       role: roleFromString(json['role'] as String?),
       city: (json['city'] as String?) ?? '-',
       country: (json['country'] as String?) ?? '-',
+      phone: json['phone'] as String?,
       username: (json['username'] as String?) ?? '-',
     );
   }
@@ -81,6 +85,7 @@ class AppUser {
     required this.role,
     required this.city,
     required this.country,
+    required this.phone,
     required this.isActive,
     required this.createdAt,
   });
@@ -91,6 +96,7 @@ class AppUser {
   final UserRole role;
   final String city;
   final String country;
+  final String? phone;
   final bool isActive;
   final String createdAt;
 
@@ -104,6 +110,7 @@ class AppUser {
       role: roleFromString(json['role'] as String?),
       city: (json['city'] as String?) ?? '-',
       country: (json['country'] as String?) ?? '-',
+      phone: json['phone'] as String?,
       isActive: (json['is_active'] as bool?) ?? false,
       createdAt: (json['created_at'] as String?) ?? '',
     );

@@ -1,6 +1,10 @@
 import '../../../../core/entities/app_models.dart';
+import '../../../../core/network/api_error_messages.dart';
+import '../../../../core/ui/app_notifier.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../shared/presentation/screens/qr_code_scan_screen.dart';
+import '../../data/operations_api.dart';
 import '../operations_form_models.dart';
 import 'operations_helpers.dart';
 import 'package:flutter/material.dart';
@@ -26,8 +30,10 @@ class OperationsTransferTab extends StatefulWidget {
 }
 
 class _OperationsTransferTabState extends State<OperationsTransferTab> {
+  final _api = OperationsApi();
   final _formKey = GlobalKey<FormState>();
   final _search = TextEditingController();
+  final _userCode = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
   final _customerName = TextEditingController();
@@ -37,10 +43,12 @@ class _OperationsTransferTabState extends State<OperationsTransferTab> {
   String? _ownCashboxId;
   String? _targetCashboxId;
   bool _cashout = false;
+  AppUser? _resolvedUser;
 
   @override
   void dispose() {
     _search.dispose();
+    _userCode.dispose();
     _amount.dispose();
     _note.dispose();
     _customerName.dispose();
@@ -66,6 +74,44 @@ class _OperationsTransferTabState extends State<OperationsTransferTab> {
       if (box.id == id) return box;
     }
     return null;
+  }
+
+  Future<void> _resolveCode([String? rawCode]) async {
+    final code = (rawCode ?? _userCode.text).trim();
+    if (code.isEmpty) return;
+    try {
+      final user = await _api.resolveUserCode(
+        token: widget.session.token,
+        code: code,
+      );
+      final matches = widget.cashboxes
+          .where((box) => box.isActive && box.managerUserId == user.id)
+          .toList();
+      if (matches.isEmpty) {
+        if (mounted) {
+          AppNotifier.error(context, 'لا توجد صناديق فعالة لهذا المستخدم.');
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _resolvedUser = user;
+        _search.text = user.fullName;
+        _targetCashboxId = matches.first.id;
+      });
+      AppNotifier.success(context, 'تم اختيار ${user.fullName}.');
+    } catch (error) {
+      if (mounted) AppNotifier.error(context, apiErrorText(error));
+    }
+  }
+
+  Future<void> _scanCode() async {
+    final code = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrCodeScanScreen()));
+    if (code == null || code.isEmpty) return;
+    _userCode.text = code;
+    await _resolveCode(code);
   }
 
   Future<void> _submit() async {
@@ -184,6 +230,43 @@ class _OperationsTransferTabState extends State<OperationsTransferTab> {
                 ),
                 onChanged: (_) => setState(() {}),
               ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _userCode,
+                      enabled: widget.enabled,
+                      decoration: const InputDecoration(
+                        labelText: 'كود أو QR المستخدم',
+                        prefixIcon: Icon(Icons.qr_code_2_rounded),
+                      ),
+                      onSubmitted: (_) => _resolveCode(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: widget.enabled ? _scanCode : null,
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton.filled(
+                    onPressed: widget.enabled ? () => _resolveCode() : null,
+                    icon: const Icon(Icons.search_rounded),
+                  ),
+                ],
+              ),
+              if (_resolvedUser != null) ...[
+                const SizedBox(height: 8),
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'المستخدم من QR',
+                  ),
+                  child: Text(
+                    '${_resolvedUser!.fullName} (@${_resolvedUser!.username}) - ${roleLabelAr(_resolvedUser!.role)}',
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: _targetCashboxId,

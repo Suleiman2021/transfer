@@ -1,10 +1,23 @@
 ﻿from fastapi import HTTPException, status
+from sqlalchemy import String, cast
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.features.risk.service import ensure_user_risk_profile
 from app.features.users.models import User, UserRole
-from app.features.users.schemas import UserCreateRequest
+from app.features.users.schemas import (
+    OwnPasswordChangeRequest,
+    UserCreateRequest,
+    UserPasswordResetRequest,
+    UserUpdateRequest,
+)
+
+
+def _normalize_phone(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def create_user_by_admin(db: Session, data: UserCreateRequest, creator: User) -> User:
@@ -17,6 +30,7 @@ def create_user_by_admin(db: Session, data: UserCreateRequest, creator: User) ->
         role=data.role,
         city=data.city.strip().lower(),
         country=data.country.strip().lower(),
+        phone=_normalize_phone(data.phone),
         password_hash=hash_password(data.password),
         created_by_id=creator.id,
         is_active=True,
@@ -48,8 +62,75 @@ def list_users(
             | (User.full_name.ilike(term))
             | (User.city.ilike(term))
             | (User.country.ilike(term))
+            | (User.phone.ilike(term))
         )
     return query.all()
+
+
+def get_user_by_code(db: Session, code: str) -> User:
+    normalized = code.strip()
+    for prefix in ("radical-transfer:user:", "user:"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+
+    user = (
+        db.query(User)
+        .filter((cast(User.id, String) == normalized) | (User.username == normalized.lower()))
+        .first()
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
+def update_user_by_admin(db: Session, user_id, data: UserUpdateRequest, actor: User) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if data.username is not None:
+        username = data.username.strip().lower()
+        exists = db.query(User).filter(User.username == username, User.id != user.id).first()
+        if exists:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        user.username = username
+    if data.full_name is not None:
+        user.full_name = data.full_name.strip()
+    if data.city is not None:
+        user.city = data.city.strip().lower()
+    if data.country is not None:
+        user.country = data.country.strip().lower()
+    if data.phone is not None:
+        user.phone = _normalize_phone(data.phone)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def reset_user_password_by_admin(
+    db: Session,
+    user_id,
+    data: UserPasswordResetRequest,
+    actor: User,
+) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.password_hash = hash_password(data.password)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def change_own_password(db: Session, user: User, data: OwnPasswordChangeRequest) -> User:
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def deactivate_user_by_admin(db: Session, user_id, actor: User) -> User:

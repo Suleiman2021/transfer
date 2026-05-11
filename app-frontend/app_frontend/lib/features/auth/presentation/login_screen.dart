@@ -3,6 +3,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/app_notifier.dart';
 import '../../../core/validation/app_validators.dart';
 import '../../../core/widgets/app_background.dart';
+import '../../../core/widgets/password_field.dart';
 import '../logic/auth_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -119,14 +120,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 validator: AppValidators.username,
                               ),
                               const SizedBox(height: 10),
-                              TextFormField(
+                              PasswordField(
                                 controller: _password,
-                                obscureText: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'كلمة المرور',
-                                  prefixIcon: Icon(Icons.lock_rounded),
-                                ),
+                                labelText: 'كلمة المرور',
                                 validator: AppValidators.password,
+                                onSubmitted: (_) => _submit(),
                               ),
                               if (_error != null) ...[
                                 const SizedBox(height: 10),

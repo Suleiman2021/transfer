@@ -69,6 +69,28 @@ class ApiClient {
     return _decodeResponse(response);
   }
 
+  static Future<Map<String, dynamic>> patchJson(
+    String path,
+    Map<String, dynamic> body, {
+    String? token,
+    bool trackActivity = true,
+  }) async {
+    final response = await _send(() async {
+      return http
+          .patch(
+            await _buildUri(path),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20));
+    }, trackActivity: trackActivity);
+
+    return _decodeResponse(response);
+  }
+
   static Future<List<dynamic>> getList(
     String path, {
     String? token,

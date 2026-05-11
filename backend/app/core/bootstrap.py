@@ -66,6 +66,13 @@ def _apply_incremental_schema_updates() -> None:
                 )
             )
 
+    if "users" in tables:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)"))
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_users_phone ON users (phone)")
+            )
+
     if "commission_rules" in tables:
         with engine.begin() as conn:
             conn.execute(
@@ -96,6 +103,20 @@ def _apply_incremental_schema_updates() -> None:
                     "NUMERIC(5, 2) NOT NULL DEFAULT 0"
                 )
             )
+            conn.execute(
+                text(
+                    "ALTER TABLE commission_rules "
+                    "ADD COLUMN IF NOT EXISTS agent_topup_profit_internal_percent "
+                    "NUMERIC(5, 2) NOT NULL DEFAULT 0"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE commission_rules "
+                    "ADD COLUMN IF NOT EXISTS agent_topup_profit_external_percent "
+                    "NUMERIC(5, 2) NOT NULL DEFAULT 0"
+                )
+            )
 
 
 def _feature_schema_mismatch() -> bool:
@@ -121,7 +142,7 @@ def _feature_schema_mismatch() -> bool:
         return True
 
     user_columns = {col["name"] for col in inspector.get_columns("users")}
-    if not {"full_name", "role", "city", "country", "password_hash"}.issubset(user_columns):
+    if not {"full_name", "role", "city", "country", "phone", "password_hash"}.issubset(user_columns):
         return True
 
     transfer_columns = {col["name"] for col in inspector.get_columns("transfers")}

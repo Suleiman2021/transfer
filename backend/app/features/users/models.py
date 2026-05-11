@@ -24,6 +24,7 @@ class User(Base):
     role = Column(Enum(UserRole, name="userrole"), nullable=False)
     city = Column(String(100), nullable=False)
     country = Column(String(100), nullable=False, index=True)
+    phone = Column(String(40), nullable=True, index=True)
 
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)

@@ -8,17 +8,19 @@ from app.core.database import get_db
 from app.core.dependencies import require_roles
 from app.features.admin.schemas import UserReportResponse
 from app.features.admin.service import get_user_report
-from app.features.cashboxes.schemas import CashboxCreateRequest, CashboxResponse
-from app.features.cashboxes.service import create_cashbox, list_cashboxes
+from app.features.cashboxes.schemas import CashboxCreateRequest, CashboxResponse, CashboxUpdateRequest
+from app.features.cashboxes.service import create_cashbox, list_cashboxes, update_cashbox_by_admin
 from app.features.commissions.schemas import CommissionRuleResponse, CommissionRuleUpsertRequest
 from app.features.commissions.service import list_commission_rules, upsert_commission_rule
 from app.features.users.models import User, UserRole
-from app.features.users.schemas import UserCreateRequest, UserResponse
+from app.features.users.schemas import UserCreateRequest, UserPasswordResetRequest, UserResponse, UserUpdateRequest
 from app.features.users.service import (
     activate_user_by_admin,
     create_user_by_admin,
     deactivate_user_by_admin,
     list_users,
+    reset_user_password_by_admin,
+    update_user_by_admin,
 )
 
 
@@ -42,6 +44,26 @@ def admin_list_users(
     current_admin: User = Depends(require_roles(UserRole.admin)),
 ):
     return list_users(db, role, search)
+
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+def admin_update_user(
+    user_id: UUID,
+    payload: UserUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_roles(UserRole.admin)),
+):
+    return update_user_by_admin(db, user_id, payload, current_admin)
+
+
+@router.patch("/users/{user_id}/password", response_model=UserResponse)
+def admin_reset_user_password(
+    user_id: UUID,
+    payload: UserPasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_roles(UserRole.admin)),
+):
+    return reset_user_password_by_admin(db, user_id, payload, current_admin)
 
 
 @router.delete("/users/{user_id}", response_model=UserResponse)
@@ -97,6 +119,16 @@ def admin_list_cashboxes(
     current_admin: User = Depends(require_roles(UserRole.admin)),
 ):
     return list_cashboxes(db, only_active=False)
+
+
+@router.patch("/cashboxes/{cashbox_id}", response_model=CashboxResponse)
+def admin_update_cashbox(
+    cashbox_id: UUID,
+    payload: CashboxUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_roles(UserRole.admin)),
+):
+    return update_cashbox_by_admin(db, cashbox_id, payload, current_admin)
 
 
 @router.post("/commissions", response_model=CommissionRuleResponse)

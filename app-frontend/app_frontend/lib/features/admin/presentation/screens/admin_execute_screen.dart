@@ -1,8 +1,12 @@
 import '../../../../core/entities/app_models.dart';
+import '../../../../core/network/api_error_messages.dart';
+import '../../../../core/ui/app_notifier.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
 import '../../../../core/widgets/responsive_page.dart';
+import '../../../shared/presentation/screens/qr_code_scan_screen.dart';
+import '../../data/admin_api.dart';
 import 'package:flutter/material.dart';
 
 class AdminExecuteRequest {
@@ -28,11 +32,15 @@ class AdminExecuteScreen extends StatefulWidget {
     super.key,
     required this.users,
     required this.cashboxes,
+    required this.commissions,
+    required this.token,
     required this.onSubmit,
   });
 
   final List<AppUser> users;
   final List<CashboxModel> cashboxes;
+  final List<CommissionRuleModel> commissions;
+  final String token;
   final Future<void> Function(AdminExecuteRequest request) onSubmit;
 
   @override
@@ -40,18 +48,22 @@ class AdminExecuteScreen extends StatefulWidget {
 }
 
 class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
+  final _api = AdminApi();
   final _key = GlobalKey<FormState>();
   final _search = TextEditingController();
+  final _userCode = TextEditingController();
   final _amount = TextEditingController();
   final _commission = TextEditingController(text: '0');
   final _note = TextEditingController();
   String? _userId;
   bool _collection = false;
   bool _busy = false;
+  bool _commissionTouched = false;
 
   @override
   void dispose() {
     _search.dispose();
+    _userCode.dispose();
     _amount.dispose();
     _commission.dispose();
     _note.dispose();
@@ -85,6 +97,54 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
     }).firstOrNull;
   }
 
+  String _defaultCommissionFor(AppUser user) {
+    final rule = widget.commissions
+        .where((item) => item.role == user.role)
+        .firstOrNull;
+    if (rule == null) return '0';
+    if (user.role == UserRole.agent) {
+      return _collection
+          ? rule.treasuryCollectionFromAgentFeePercent
+          : rule.treasuryToAgentFeePercent;
+    }
+    return _collection
+        ? rule.treasuryCollectionFromAccreditedFeePercent
+        : rule.treasuryToAccreditedFeePercent;
+  }
+
+  void _applyDefaultCommission({bool force = false}) {
+    final user = _selectedUser;
+    if (user == null) return;
+    if (!force && _commissionTouched) return;
+    _commission.text = _defaultCommissionFor(user);
+  }
+
+  Future<void> _resolveCode([String? rawCode]) async {
+    final code = (rawCode ?? _userCode.text).trim();
+    if (code.isEmpty) return;
+    try {
+      final user = await _api.resolveUserCode(token: widget.token, code: code);
+      setState(() {
+        _userId = user.id;
+        _search.text = user.fullName;
+        _commissionTouched = false;
+        _applyDefaultCommission(force: true);
+      });
+      if (mounted) AppNotifier.success(context, 'تم اختيار ${user.fullName}.');
+    } catch (error) {
+      if (mounted) AppNotifier.error(context, apiErrorText(error));
+    }
+  }
+
+  Future<void> _scanCode() async {
+    final code = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrCodeScanScreen()));
+    if (code == null || code.isEmpty) return;
+    _userCode.text = code;
+    await _resolveCode(code);
+  }
+
   Future<void> _submit() async {
     if (!_key.currentState!.validate()) return;
     final treasury = _treasury;
@@ -102,6 +162,12 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
       commissionPercent: _commission.text.trim(),
       note: _note.text.trim().isEmpty ? null : _note.text.trim(),
     );
+    final amount = double.tryParse(request.amount.replaceAll(',', '.')) ?? 0;
+    final percent =
+        double.tryParse(request.commissionPercent.replaceAll(',', '.')) ?? 0;
+    final commission = amount * percent / 100;
+    final net = _collection ? amount : amount - commission;
+    final deducted = _collection ? amount + commission : amount;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -109,6 +175,9 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
         content: Text(
           '${transferTypeLabelAr(operationType)}\n'
           '${request.amount} SYP\n'
+          'قيمة العمولة: ${moneyText(commission)}\n'
+          'الصافي الواصل: ${moneyText(net)}\n'
+          'المخصوم من المرسل: ${moneyText(deducted)}\n'
           'عمولة: ${request.commissionPercent}%',
         ),
         actions: [
@@ -135,6 +204,7 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
     if ((_userId == null || !options.any((user) => user.id == _userId)) &&
         options.isNotEmpty) {
       _userId = options.first.id;
+      _applyDefaultCommission(force: true);
     }
     final user = _selectedUser;
     final cashbox = _selectedCashbox;
@@ -162,6 +232,31 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                         onChanged: (_) => setState(() => _userId = null),
                       ),
                       const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _userCode,
+                              decoration: const InputDecoration(
+                                labelText: 'كود أو QR المستخدم',
+                                prefixIcon: Icon(Icons.qr_code_2_rounded),
+                              ),
+                              onSubmitted: (_) => _resolveCode(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            onPressed: _scanCode,
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton.filled(
+                            onPressed: () => _resolveCode(),
+                            icon: const Icon(Icons.search_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         initialValue: _userId,
                         isExpanded: true,
@@ -178,7 +273,11 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                               ),
                             )
                             .toList(),
-                        onChanged: (value) => setState(() => _userId = value),
+                        onChanged: (value) => setState(() {
+                          _userId = value;
+                          _commissionTouched = false;
+                          _applyDefaultCommission(force: true);
+                        }),
                       ),
                       const SizedBox(height: 10),
                       SegmentedButton<bool>(
@@ -195,8 +294,11 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                           ),
                         ],
                         selected: {_collection},
-                        onSelectionChanged: (value) =>
-                            setState(() => _collection = value.first),
+                        onSelectionChanged: (value) => setState(() {
+                          _collection = value.first;
+                          _commissionTouched = false;
+                          _applyDefaultCommission(force: true);
+                        }),
                       ),
                       if (user != null && cashbox != null) ...[
                         const SizedBox(height: 10),
@@ -227,6 +329,7 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                         decoration: const InputDecoration(
                           labelText: 'عمولة الخزنة %',
                         ),
+                        onChanged: (_) => _commissionTouched = true,
                         validator: AppValidators.percent,
                       ),
                       const SizedBox(height: 10),

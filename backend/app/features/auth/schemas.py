@@ -14,10 +14,12 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_id: UUID
+    username: str
     full_name: str
     role: UserRole
     city: str
     country: str
+    phone: str | None = None
 
 
 class MeResponse(BaseModel):
@@ -27,3 +29,4 @@ class MeResponse(BaseModel):
     role: UserRole
     city: str
     country: str
+    phone: str | None = None

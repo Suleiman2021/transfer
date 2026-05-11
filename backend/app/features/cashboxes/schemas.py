@@ -16,6 +16,13 @@ class CashboxCreateRequest(BaseModel):
     opening_balance: Decimal = Field(default=Decimal("0"), ge=Decimal("0"))
 
 
+class CashboxUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=100)
+    city: str | None = Field(default=None, min_length=2, max_length=100)
+    country: str | None = Field(default=None, min_length=2, max_length=100)
+    is_active: bool | None = None
+
+
 class CashboxResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

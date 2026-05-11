@@ -2,6 +2,7 @@ import '../../../../core/entities/app_models.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../../core/widgets/password_field.dart';
 import '../../../../core/widgets/responsive_page.dart';
 import 'package:flutter/material.dart';
 
@@ -14,6 +15,7 @@ class AddUserScreen extends StatefulWidget {
     required UserRole role,
     required String city,
     required String country,
+    String? phone,
     required String password,
   })
   onSubmit;
@@ -28,6 +30,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
   final _fullName = TextEditingController();
   final _city = TextEditingController();
   final _country = TextEditingController(text: 'syria');
+  final _phone = TextEditingController();
   final _password = TextEditingController();
   UserRole _role = UserRole.agent;
   bool _busy = false;
@@ -38,6 +41,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
     _fullName.dispose();
     _city.dispose();
     _country.dispose();
+    _phone.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -51,6 +55,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
       role: _role,
       city: _city.text,
       country: _country.text,
+      phone: _phone.text,
       password: _password.text,
     );
     if (mounted) setState(() => _busy = false);
@@ -133,11 +138,17 @@ class _AddUserScreenState extends State<AddUserScreen> {
                       ),
                       const SizedBox(height: 10),
                       TextFormField(
-                        controller: _password,
-                        obscureText: true,
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
-                          labelText: 'كلمة المرور الأولية',
+                          labelText: 'رقم الهاتف',
+                          prefixIcon: Icon(Icons.phone_rounded),
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      PasswordField(
+                        controller: _password,
+                        labelText: 'كلمة المرور الأولية',
                         validator: AppValidators.password,
                       ),
                       const SizedBox(height: 14),

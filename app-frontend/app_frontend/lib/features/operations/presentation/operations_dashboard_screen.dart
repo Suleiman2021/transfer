@@ -9,6 +9,7 @@ import '../../../core/widgets/app_empty_state.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/code_dialogs.dart';
 import '../../../core/widgets/responsive_page.dart';
+import '../../../features/shared/presentation/screens/account_security_screen.dart';
 import '../data/operations_api.dart';
 import 'operations_form_models.dart';
 import 'screens/operations_history_screen.dart';
@@ -173,6 +174,14 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
     final percent =
         request.commissionPercent ??
         formatFixed2(_commissionPercentFor(request));
+    final amount = parseInputNumber(request.amount);
+    final commission = amount * parseInputNumber(percent) / 100;
+    final isSplitFee =
+        request.operationType == 'network_transfer' ||
+        request.operationType == 'topup' ||
+        request.operationType == 'agent_funding';
+    final net = isSplitFee ? amount - commission : amount;
+    final deducted = isSplitFee ? amount : amount + commission;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -184,6 +193,9 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
             Text('العملية: ${transferTypeLabelAr(request.operationType)}'),
             Text('المبلغ: ${request.amount}'),
             Text('عمولة الخزنة: $percent%'),
+            Text('قيمة العمولة: ${moneyText(commission)}'),
+            Text('الصافي الواصل: ${moneyText(net)}'),
+            Text('المخصوم من المرسل: ${moneyText(deducted)}'),
             if ((request.customerName ?? '').isNotEmpty)
               Text('العميل: ${request.customerName}'),
           ],
@@ -374,6 +386,14 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
           IconButton(
             onPressed: _loadData,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => AccountSecurityScreen(session: widget.session),
+              ),
+            ),
+            icon: const Icon(Icons.settings_rounded),
           ),
         ],
       ),

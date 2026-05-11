@@ -34,4 +34,16 @@ class AuthApi {
     );
     return AuthSession.fromMeJson(json, token);
   }
+
+  Future<AuthSession> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final json = await ApiClient.patchJson('/auth/me/password', {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+    }, token: token);
+    return AuthSession.fromMeJson(json, token);
+  }
 }

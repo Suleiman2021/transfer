@@ -1,11 +1,17 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/ui/app_notifier.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
 import '../../../../core/widgets/responsive_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 class UserQrScreen extends StatelessWidget {
   const UserQrScreen({
@@ -47,9 +53,46 @@ class UserQrScreen extends StatelessWidget {
   final String country;
   final String userCode;
 
+  String get _payload => 'radical-transfer:user:$userCode';
+
+  Future<void> _shareQr(BuildContext context) async {
+    try {
+      final painter = QrPainter(
+        data: _payload,
+        version: QrVersions.auto,
+        gapless: true,
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
+        ),
+      );
+      final imageData = await painter.toImageData(
+        900,
+        format: ui.ImageByteFormat.png,
+      );
+      if (imageData == null) throw StateError('QR image generation failed');
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/radical-user-$username-qr.png');
+      await file.writeAsBytes(imageData.buffer.asUint8List());
+      await SharePlus.instance.share(
+        ShareParams(
+          text: '$fullName\n@$username\n$userCode',
+          files: [XFile(file.path)],
+        ),
+      );
+    } catch (_) {
+      if (context.mounted) {
+        AppNotifier.error(context, 'تعذر مشاركة صورة QR.');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final payload = 'radical-transfer:user:$userCode';
     return Scaffold(
       appBar: AppBar(title: const Text('رمز المستخدم')),
       body: AppBackground(
@@ -70,7 +113,7 @@ class UserQrScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: AppTheme.glassLine),
                       ),
-                      child: QrImageView(data: payload, size: 230),
+                      child: QrImageView(data: _payload, size: 230),
                     ),
                     const SizedBox(height: 14),
                     Text(
@@ -99,13 +142,23 @@ class UserQrScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () =>
-                                Clipboard.setData(ClipboardData(text: payload)),
+                            onPressed: () => Clipboard.setData(
+                              ClipboardData(text: _payload),
+                            ),
                             icon: const Icon(Icons.qr_code_rounded),
                             label: const Text('نسخ QR'),
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () => _shareQr(context),
+                        icon: const Icon(Icons.share_rounded),
+                        label: const Text('مشاركة QR كصورة'),
+                      ),
                     ),
                   ],
                 ),

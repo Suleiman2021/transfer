@@ -8,6 +8,7 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/code_dialogs.dart';
 import '../../../core/widgets/responsive_page.dart';
 import '../../../features/auth/logic/auth_controller.dart';
+import '../../../features/shared/presentation/screens/account_security_screen.dart';
 import '../../../features/shared/presentation/screens/user_qr_screen.dart';
 import '../data/admin_api.dart';
 import 'screens/add_cashbox_screen.dart';
@@ -149,6 +150,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     required UserRole role,
     required String city,
     required String country,
+    String? phone,
     required String password,
   }) async {
     try {
@@ -159,6 +161,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         role: role,
         city: city,
         country: country,
+        phone: phone,
         password: password,
       );
       if (mounted) {
@@ -372,6 +375,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           AdminExecuteScreen(
             users: _users,
             cashboxes: _cashboxes,
+            commissions: _commissions,
+            token: widget.session.token,
             onSubmit: _execute,
           ),
         ),
@@ -430,6 +435,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           IconButton(
             onPressed: _loadData,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            onPressed: () =>
+                _push(AccountSecurityScreen(session: widget.session)),
+            icon: const Icon(Icons.settings_rounded),
           ),
           IconButton(
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),

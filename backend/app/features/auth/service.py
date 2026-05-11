@@ -23,10 +23,12 @@ def _build_login_response(user: User) -> LoginResponse:
     return LoginResponse(
         access_token=token,
         user_id=user.id,
+        username=user.username,
         full_name=user.full_name,
         role=user.role,
         city=user.city,
         country=user.country,
+        phone=user.phone,
     )
 
 

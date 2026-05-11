@@ -1,5 +1,6 @@
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/network/api_error_messages.dart';
+import '../../../../core/security/device_auth.dart';
 import '../../../../core/ui/app_notifier.dart';
 import '../../../../core/utils/report_pdf.dart';
 import '../../../../core/validation/app_validators.dart';
@@ -9,6 +10,7 @@ import '../../../../core/widgets/app_error_view.dart';
 import '../../../../core/widgets/app_section_card.dart';
 import '../../../../core/widgets/code_dialogs.dart';
 import '../../../../core/widgets/metric_card.dart';
+import '../../../../core/widgets/password_field.dart';
 import '../../../../core/widgets/responsive_page.dart';
 import '../../../../core/widgets/transfer_details_sheet.dart';
 import '../../../../core/widgets/transfer_tile.dart';
@@ -89,6 +91,77 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
         await _api.activateUser(token: widget.token, userId: user.id);
       }
       if (mounted) AppNotifier.success(context, 'تم تحديث حالة المستخدم.');
+      await _load();
+    } catch (error) {
+      if (mounted) AppNotifier.error(context, apiErrorText(error));
+    }
+  }
+
+  Future<void> _editUser(AppUser user) async {
+    final result = await showDialog<_UserEditInput>(
+      context: context,
+      builder: (_) => _UserEditDialog(user: user),
+    );
+    if (result == null) return;
+    try {
+      await _api.updateUser(
+        token: widget.token,
+        userId: user.id,
+        username: result.username,
+        fullName: result.fullName,
+        city: result.city,
+        country: result.country,
+        phone: result.phone,
+      );
+      if (mounted) AppNotifier.success(context, 'تم تعديل معلومات المستخدم.');
+      await _load();
+    } catch (error) {
+      if (mounted) AppNotifier.error(context, apiErrorText(error));
+    }
+  }
+
+  Future<void> _resetPassword(AppUser user) async {
+    final ok = await DeviceAuth.verify(
+      reason: 'تحقق من هويتك لإعادة تعيين كلمة مرور المستخدم',
+    );
+    if (!ok) {
+      if (mounted) AppNotifier.error(context, 'تعذر التحقق من هوية الجهاز.');
+      return;
+    }
+    if (!mounted) return;
+    final password = await showDialog<String>(
+      context: context,
+      builder: (_) => const _PasswordResetDialog(),
+    );
+    if (password == null || password.isEmpty) return;
+    try {
+      await _api.resetUserPassword(
+        token: widget.token,
+        userId: user.id,
+        password: password,
+      );
+      if (mounted) AppNotifier.success(context, 'تم تعيين كلمة مرور جديدة.');
+    } catch (error) {
+      if (mounted) AppNotifier.error(context, apiErrorText(error));
+    }
+  }
+
+  Future<void> _editCashbox(CashboxModel cashbox) async {
+    final input = await showDialog<_CashboxEditInput>(
+      context: context,
+      builder: (_) => _CashboxEditDialog(cashbox: cashbox),
+    );
+    if (input == null) return;
+    try {
+      await _api.updateCashbox(
+        token: widget.token,
+        cashboxId: cashbox.id,
+        name: input.name,
+        city: input.city,
+        country: input.country,
+        isActive: input.isActive,
+      );
+      if (mounted) AppNotifier.success(context, 'تم تعديل الصندوق.');
       await _load();
     } catch (error) {
       if (mounted) AppNotifier.error(context, apiErrorText(error));
@@ -323,6 +396,27 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: _actionBusy
+                                          ? null
+                                          : () => _editUser(report.user),
+                                      icon: const Icon(Icons.edit_rounded),
+                                      label: const Text('تعديل المستخدم'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: _actionBusy
+                                          ? null
+                                          : () => _resetPassword(report.user),
+                                      icon: const Icon(Icons.password_rounded),
+                                      label: const Text('تعيين كلمة مرور'),
+                                    ),
+                                  ],
+                                ),
                                 const SizedBox(height: 10),
                                 if (_treasury == null)
                                   const Text(
@@ -372,8 +466,23 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                                             subtitle: Text(
                                               cashboxTypeLabelAr(box.type),
                                             ),
-                                            trailing: Text(
-                                              moneyText(box.balanceValue),
+                                            trailing: Wrap(
+                                              spacing: 6,
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
+                                              children: [
+                                                Text(
+                                                  moneyText(box.balanceValue),
+                                                ),
+                                                IconButton(
+                                                  tooltip: 'تعديل الصندوق',
+                                                  onPressed: () =>
+                                                      _editCashbox(box),
+                                                  icon: const Icon(
+                                                    Icons.edit_rounded,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         )
@@ -616,4 +725,276 @@ class _TreasuryInput {
   final String amount;
   final String commissionPercent;
   final String? note;
+}
+
+class _UserEditInput {
+  const _UserEditInput({
+    required this.username,
+    required this.fullName,
+    required this.city,
+    required this.country,
+    required this.phone,
+  });
+
+  final String username;
+  final String fullName;
+  final String city;
+  final String country;
+  final String? phone;
+}
+
+class _UserEditDialog extends StatefulWidget {
+  const _UserEditDialog({required this.user});
+
+  final AppUser user;
+
+  @override
+  State<_UserEditDialog> createState() => _UserEditDialogState();
+}
+
+class _UserEditDialogState extends State<_UserEditDialog> {
+  final _key = GlobalKey<FormState>();
+  late final TextEditingController _username;
+  late final TextEditingController _fullName;
+  late final TextEditingController _city;
+  late final TextEditingController _country;
+  late final TextEditingController _phone;
+
+  @override
+  void initState() {
+    super.initState();
+    _username = TextEditingController(text: widget.user.username);
+    _fullName = TextEditingController(text: widget.user.fullName);
+    _city = TextEditingController(text: widget.user.city);
+    _country = TextEditingController(text: widget.user.country);
+    _phone = TextEditingController(text: widget.user.phone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _username.dispose();
+    _fullName.dispose();
+    _city.dispose();
+    _country.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      scrollable: true,
+      title: const Text('تعديل المستخدم'),
+      content: Form(
+        key: _key,
+        child: Column(
+          children: [
+            TextFormField(
+              controller: _username,
+              decoration: const InputDecoration(labelText: 'اسم المستخدم'),
+              validator: AppValidators.username,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _fullName,
+              decoration: const InputDecoration(labelText: 'الاسم الكامل'),
+              validator: AppValidators.requiredText,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'رقم الهاتف'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _city,
+              decoration: const InputDecoration(labelText: 'المدينة'),
+              validator: AppValidators.requiredText,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _country,
+              decoration: const InputDecoration(labelText: 'الدولة'),
+              validator: AppValidators.requiredText,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (!_key.currentState!.validate()) return;
+            Navigator.of(context).pop(
+              _UserEditInput(
+                username: _username.text,
+                fullName: _fullName.text,
+                city: _city.text,
+                country: _country.text,
+                phone: _phone.text,
+              ),
+            );
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PasswordResetDialog extends StatefulWidget {
+  const _PasswordResetDialog();
+
+  @override
+  State<_PasswordResetDialog> createState() => _PasswordResetDialogState();
+}
+
+class _PasswordResetDialogState extends State<_PasswordResetDialog> {
+  final _key = GlobalKey<FormState>();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('تعيين كلمة مرور جديدة'),
+      content: Form(
+        key: _key,
+        child: PasswordField(
+          controller: _password,
+          labelText: 'كلمة المرور الجديدة',
+          validator: AppValidators.password,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (!_key.currentState!.validate()) return;
+            Navigator.of(context).pop(_password.text);
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CashboxEditInput {
+  const _CashboxEditInput({
+    required this.name,
+    required this.city,
+    required this.country,
+    required this.isActive,
+  });
+
+  final String name;
+  final String city;
+  final String country;
+  final bool isActive;
+}
+
+class _CashboxEditDialog extends StatefulWidget {
+  const _CashboxEditDialog({required this.cashbox});
+
+  final CashboxModel cashbox;
+
+  @override
+  State<_CashboxEditDialog> createState() => _CashboxEditDialogState();
+}
+
+class _CashboxEditDialogState extends State<_CashboxEditDialog> {
+  final _key = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  late final TextEditingController _city;
+  late final TextEditingController _country;
+  late bool _isActive;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.cashbox.name);
+    _city = TextEditingController(text: widget.cashbox.city);
+    _country = TextEditingController(text: widget.cashbox.country);
+    _isActive = widget.cashbox.isActive;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _city.dispose();
+    _country.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      scrollable: true,
+      title: const Text('تعديل الصندوق'),
+      content: Form(
+        key: _key,
+        child: Column(
+          children: [
+            TextFormField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'اسم الصندوق'),
+              validator: AppValidators.requiredText,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _city,
+              decoration: const InputDecoration(labelText: 'المدينة'),
+              validator: AppValidators.requiredText,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _country,
+              decoration: const InputDecoration(labelText: 'الدولة'),
+              validator: AppValidators.requiredText,
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _isActive,
+              onChanged: (value) => setState(() => _isActive = value),
+              title: const Text('الصندوق فعال'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (!_key.currentState!.validate()) return;
+            Navigator.of(context).pop(
+              _CashboxEditInput(
+                name: _name.text,
+                city: _city.text,
+                country: _country.text,
+                isActive: _isActive,
+              ),
+            );
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
+  }
 }

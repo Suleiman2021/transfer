@@ -5,6 +5,8 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.features.auth.schemas import LoginRequest, LoginResponse, MeResponse
 from app.features.auth.service import login_admin_user, login_non_admin_user
+from app.features.users.schemas import OwnPasswordChangeRequest, UserResponse
+from app.features.users.service import change_own_password, get_user_by_code
 from app.features.users.models import User
 
 
@@ -34,4 +36,32 @@ def me(current_user: User = Depends(get_current_user)):
         role=current_user.role,
         city=current_user.city,
         country=current_user.country,
+        phone=current_user.phone,
     )
+
+
+@router.patch("/me/password", response_model=MeResponse)
+def change_password(
+    payload: OwnPasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user = change_own_password(db, current_user, payload)
+    return MeResponse(
+        user_id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        role=user.role,
+        city=user.city,
+        country=user.country,
+        phone=user.phone,
+    )
+
+
+@router.get("/users/resolve-code", response_model=UserResponse)
+def resolve_user_code(
+    code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return get_user_by_code(db, code)

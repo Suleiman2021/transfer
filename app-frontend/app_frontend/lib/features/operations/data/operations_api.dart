@@ -16,6 +16,29 @@ class OperationsApi {
         .toList();
   }
 
+  Future<AppUser> resolveUserCode({
+    required String token,
+    required String code,
+  }) async {
+    final json = await ApiClient.getJson(
+      '/auth/users/resolve-code?code=${Uri.encodeQueryComponent(code.trim())}',
+      token: token,
+    );
+    return AppUser.fromJson(json);
+  }
+
+  Future<AuthSession> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final json = await ApiClient.patchJson('/auth/me/password', {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+    }, token: token);
+    return AuthSession.fromMeJson(json, token);
+  }
+
   Future<List<TransferModel>> fetchTransfers(
     String token, {
     DateTime? fromDate,
