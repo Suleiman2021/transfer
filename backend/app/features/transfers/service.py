@@ -17,6 +17,7 @@ from app.features.commissions.service import (
 from app.features.ledger.service import (
     LedgerLineInput,
     create_ledger_entry,
+    ensure_customer_cashout_clearing_account,
     ensure_cashbox_ledger_account,
     ensure_default_ledger_accounts,
     post_transfer_ledger_entry,
@@ -366,10 +367,20 @@ def _should_require_manual_review(
     risk_requires_review: bool,
 ) -> bool:
     if operation_type == TransferType.customer_cashout:
-        return False
+        return risk_requires_review
     # Product rule: all transfer operations require recipient approval.
     # (User and cashbox creation flows are outside this service.)
     return True
+
+
+def _apply_admin_commission_override(
+    commission_percent: Decimal,
+    requested_override: Decimal | None,
+    performer: User,
+) -> Decimal:
+    if requested_override is not None and performer.role == UserRole.admin:
+        return Decimal(requested_override)
+    return commission_percent
 
 
 
@@ -556,8 +567,11 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
             is_cross_country=is_cross_country,
             sender_profit_enabled=sender_profit_enabled,
         )
-    if payload.commission_percent is not None:
-        commission_percent = Decimal(payload.commission_percent)
+    commission_percent = _apply_admin_commission_override(
+        commission_percent,
+        payload.commission_percent,
+        performer,
+    )
     commission_percent = _q_money(commission_percent)
     agent_profit_percent = _q_money(agent_profit_percent)
     cashout_profit_percent = Decimal(payload.cashout_profit_percent or Decimal("0"))
@@ -823,7 +837,8 @@ def _apply_transfer_cancellation(db: Session, transfer: Transfer) -> tuple[Cashb
             )
         treasury.balance = _q_money(treasury_balance - commission_amount)
 
-    source.balance = _q_money(Decimal(source.balance) + amount + commission_amount)
+    source_restore = amount if source_is_treasury else _q_money(amount + commission_amount)
+    source.balance = _q_money(Decimal(source.balance) + source_restore)
     return source, destination, treasury
 
 
@@ -843,6 +858,33 @@ def _post_transfer_cancellation_ledger_entry(
 
     amount = _q_money(Decimal(transfer.amount))
     commission = _q_money(Decimal(transfer.commission_amount))
+
+    if transfer.operation_type == TransferType.customer_cashout:
+        clearing_account = ensure_customer_cashout_clearing_account(db)
+        create_ledger_entry(
+            db,
+            created_by_id=created_by_id,
+            transfer_id=None,
+            reference_type="transfer_cancellation",
+            reference_id=transfer.id,
+            description=f"Cancellation of customer cashout {transfer.id}",
+            lines=[
+                LedgerLineInput(
+                    account_id=source_account.id,
+                    debit=amount,
+                    credit=Decimal("0"),
+                    currency=transfer.source_currency,
+                ),
+                LedgerLineInput(
+                    account_id=clearing_account.id,
+                    debit=Decimal("0"),
+                    credit=amount,
+                    currency=transfer.destination_currency,
+                ),
+            ],
+        )
+        return
+
     source_debit = _q_money(amount + commission)
 
     lines = [

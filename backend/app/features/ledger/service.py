@@ -8,11 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.features.cashboxes.models import Cashbox
 from app.features.ledger.models import LedgerAccount, LedgerAccountType, LedgerEntry, LedgerLine
-from app.features.transfers.models import Transfer
+from app.features.transfers.models import Transfer, TransferType
 
 
 MONEY_QUANT = Decimal("0.01")
 COMMISSION_REVENUE_CODE = "REV_COMMISSION"
+CUSTOMER_CASHOUT_CLEARING_CODE = "CLR_CUSTOMER_CASHOUT"
 
 
 @dataclass
@@ -31,21 +32,56 @@ def _cashbox_account_code(cashbox_id: UUID) -> str:
     return f"CASHBOX:{cashbox_id}"
 
 
-def ensure_default_ledger_accounts(db: Session) -> None:
-    account = db.query(LedgerAccount).filter(LedgerAccount.code == COMMISSION_REVENUE_CODE).first()
+def _ensure_system_account(
+    db: Session,
+    *,
+    code: str,
+    name: str,
+    account_type: LedgerAccountType,
+) -> LedgerAccount:
+    account = db.query(LedgerAccount).filter(LedgerAccount.code == code).first()
     if account:
-        return
+        account.name = name
+        account.account_type = account_type
+        account.is_system = True
+        account.is_active = True
+        return account
 
-    db.add(
-        LedgerAccount(
-            code=COMMISSION_REVENUE_CODE,
-            name="Commission Revenue",
-            account_type=LedgerAccountType.revenue,
-            currency="SYP",
-            cashbox_id=None,
-            is_system=True,
-            is_active=True,
-        )
+    account = LedgerAccount(
+        code=code,
+        name=name,
+        account_type=account_type,
+        currency="SYP",
+        cashbox_id=None,
+        is_system=True,
+        is_active=True,
+    )
+    db.add(account)
+    db.flush()
+    return account
+
+
+def ensure_default_ledger_accounts(db: Session) -> None:
+    _ensure_system_account(
+        db,
+        code=COMMISSION_REVENUE_CODE,
+        name="Commission Revenue",
+        account_type=LedgerAccountType.revenue,
+    )
+    _ensure_system_account(
+        db,
+        code=CUSTOMER_CASHOUT_CLEARING_CODE,
+        name="Customer Cashout Clearing",
+        account_type=LedgerAccountType.asset,
+    )
+
+
+def ensure_customer_cashout_clearing_account(db: Session) -> LedgerAccount:
+    return _ensure_system_account(
+        db,
+        code=CUSTOMER_CASHOUT_CLEARING_CODE,
+        name="Customer Cashout Clearing",
+        account_type=LedgerAccountType.asset,
     )
 
 
@@ -155,6 +191,32 @@ def post_transfer_ledger_entry(db: Session, transfer: Transfer, created_by_id: U
     treasury_account = ensure_cashbox_ledger_account(db, treasury_cashbox)
     amount = _q(transfer.amount)
     commission = _q(transfer.commission_amount)
+
+    if getattr(transfer, "operation_type", None) == TransferType.customer_cashout:
+        clearing_account = ensure_customer_cashout_clearing_account(db)
+        return create_ledger_entry(
+            db,
+            created_by_id=created_by_id,
+            transfer_id=transfer.id,
+            reference_type="transfer",
+            reference_id=transfer.id,
+            description=f"Customer cashout {transfer.id}",
+            lines=[
+                LedgerLineInput(
+                    account_id=clearing_account.id,
+                    debit=amount,
+                    credit=Decimal("0"),
+                    currency=transfer.destination_currency,
+                ),
+                LedgerLineInput(
+                    account_id=source_account.id,
+                    debit=Decimal("0"),
+                    credit=amount,
+                    currency=transfer.source_currency,
+                ),
+            ],
+        )
+
     source_credit = _q(amount + commission)
 
     lines = [

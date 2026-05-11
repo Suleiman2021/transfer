@@ -175,7 +175,7 @@ class TransferPermissionTests(unittest.TestCase):
             to_cashbox_id="dst",
             operation_type=TransferType.topup,
         )
-        source = SimpleNamespace(id="src", type=CashboxType.treasury, balance="490.00", is_active=True)
+        source = SimpleNamespace(id="src", type=CashboxType.treasury, balance="500.00", is_active=True)
         destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="700.00", is_active=True)
         treasury = source
 
@@ -186,6 +186,26 @@ class TransferPermissionTests(unittest.TestCase):
 
         self.assertEqual(source.balance, transfers_service._q_money("1000.00"))
         self.assertEqual(destination.balance, transfers_service._q_money("200.00"))
+
+    def test_treasury_transfer_cancellation_does_not_add_commission_twice(self):
+        transfer = SimpleNamespace(
+            amount="500.00",
+            commission_amount="10.00",
+            from_cashbox_id="treasury",
+            to_cashbox_id="dst",
+            operation_type=TransferType.topup,
+        )
+        source = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="500.00", is_active=True)
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="500.00", is_active=True)
+        treasury = source
+
+        with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
+            transfers_service, "_get_locked_treasury", return_value=treasury
+        ):
+            transfers_service._apply_transfer_cancellation(None, transfer)
+
+        self.assertEqual(source.balance, transfers_service._q_money("1000.00"))
+        self.assertEqual(destination.balance, transfers_service._q_money("0.00"))
 
     def test_cancel_transfer_requires_admin_role(self):
         reviewer = SimpleNamespace(role=UserRole.agent)
@@ -458,6 +478,46 @@ class TransferPermissionTests(unittest.TestCase):
             )
         )
 
+    def test_customer_cashout_manual_review_follows_risk_result(self):
+        performer = SimpleNamespace(role=UserRole.accredited)
+
+        self.assertFalse(
+            transfers_service._should_require_manual_review(
+                performer,
+                TransferType.customer_cashout,
+                risk_requires_review=False,
+            )
+        )
+        self.assertTrue(
+            transfers_service._should_require_manual_review(
+                performer,
+                TransferType.customer_cashout,
+                risk_requires_review=True,
+            )
+        )
+
+    def test_non_admin_commission_override_is_ignored(self):
+        performer = SimpleNamespace(role=UserRole.accredited)
+
+        result = transfers_service._apply_admin_commission_override(
+            Decimal("2.50"),
+            Decimal("0.00"),
+            performer,
+        )
+
+        self.assertEqual(result, Decimal("2.50"))
+
+    def test_admin_commission_override_is_allowed(self):
+        performer = SimpleNamespace(role=UserRole.admin)
+
+        result = transfers_service._apply_admin_commission_override(
+            Decimal("2.50"),
+            Decimal("0.75"),
+            performer,
+        )
+
+        self.assertEqual(result, Decimal("0.75"))
+
 
 class LedgerPostingTests(unittest.TestCase):
     def test_commission_is_booked_to_revenue_account(self):
@@ -537,6 +597,51 @@ class LedgerPostingTests(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0].account_id, "dst-account")
         self.assertEqual(lines[1].account_id, "src-account")
+
+    def test_customer_cashout_posts_against_clearing_account(self):
+        transfer = SimpleNamespace(
+            id="tx-cashout",
+            from_cashbox_id="src",
+            to_cashbox_id="src",
+            treasury_cashbox_id="treasury",
+            operation_type=TransferType.customer_cashout,
+            amount="250.00",
+            commission_amount="0.00",
+            source_currency="SYP",
+            destination_currency="SYP",
+        )
+        source_cashbox = SimpleNamespace(id="src", name="Source")
+        treasury_cashbox = SimpleNamespace(id="treasury", name="Treasury")
+        source_account = SimpleNamespace(id="src-account")
+        destination_account = SimpleNamespace(id="dst-account")
+        treasury_account = SimpleNamespace(id="treasury-account")
+        clearing_account = SimpleNamespace(id="cashout-clearing-account")
+        captured = {}
+
+        fake_db = _FakeDB([None, source_cashbox, source_cashbox, treasury_cashbox])
+
+        def _capture_entry(db, **kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+        with patch.object(ledger_service, "ensure_default_ledger_accounts"), patch.object(
+            ledger_service,
+            "ensure_cashbox_ledger_account",
+            side_effect=[source_account, destination_account, treasury_account],
+        ), patch.object(
+            ledger_service,
+            "ensure_customer_cashout_clearing_account",
+            return_value=clearing_account,
+        ), patch.object(ledger_service, "create_ledger_entry", side_effect=_capture_entry):
+            result = ledger_service.post_transfer_ledger_entry(fake_db, transfer, created_by_id="admin-1")
+
+        self.assertEqual(result, "ok")
+        lines = captured["lines"]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0].account_id, "cashout-clearing-account")
+        self.assertEqual(lines[0].debit, Decimal("250.00"))
+        self.assertEqual(lines[1].account_id, "src-account")
+        self.assertEqual(lines[1].credit, Decimal("250.00"))
 
 
 class ConfigTests(unittest.TestCase):

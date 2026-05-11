@@ -229,9 +229,6 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
         amount: request.amount,
         operationType: request.operationType,
         note: request.note,
-        commissionPercent:
-            request.commissionPercent ??
-            formatFixed2(_commissionPercentFor(request)),
         customerName: request.customerName,
         customerPhone: request.customerPhone,
         cashoutProfitPercent: request.cashoutProfitPercent,
