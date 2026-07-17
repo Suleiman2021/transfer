@@ -55,10 +55,13 @@ def upgrade() -> None:
             sa.Column("currency_balances", sa.JSON(), nullable=False, server_default="{}"),
         )
     if "balance" in cashbox_columns:
+        # The column is of type json, which has no equality operator; compare
+        # through jsonb and cast the built object back to json for assignment.
         op.execute(
             "UPDATE cashboxes "
-            "SET currency_balances = jsonb_build_object('SYP', balance::text) "
-            "WHERE (currency_balances = '{}' OR currency_balances IS NULL) AND balance > 0"
+            "SET currency_balances = jsonb_build_object('SYP', balance::text)::json "
+            "WHERE (currency_balances IS NULL OR currency_balances::jsonb = '{}'::jsonb) "
+            "AND balance > 0"
         )
         op.drop_column("cashboxes", "balance")
 
