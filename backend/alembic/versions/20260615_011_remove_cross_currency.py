@@ -49,6 +49,11 @@ def upgrade() -> None:
 
     # Cashboxes: migrate the legacy SYP balance into per-currency balances, then drop it.
     cashbox_columns = {c["name"] for c in inspector.get_columns("cashboxes")}
+    if "currency_balances" not in cashbox_columns:
+        op.add_column(
+            "cashboxes",
+            sa.Column("currency_balances", sa.JSON(), nullable=False, server_default="{}"),
+        )
     if "balance" in cashbox_columns:
         op.execute(
             "UPDATE cashboxes "
