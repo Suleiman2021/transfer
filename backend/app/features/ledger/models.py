@@ -24,7 +24,7 @@ class LedgerAccount(Base):
     code = Column(String(80), nullable=False, unique=True, index=True)
     name = Column(String(120), nullable=False)
     account_type = Column(Enum(LedgerAccountType, name="ledgeraccounttype"), nullable=False)
-    currency = Column(String(3), nullable=False, default="SYP")
+    currency = Column(String(4), nullable=False, default="SYP")
 
     cashbox_id = Column(UUID(as_uuid=True), ForeignKey("cashboxes.id", ondelete="CASCADE"), nullable=True, unique=True, index=True)
 
@@ -61,7 +61,7 @@ class LedgerLine(Base):
 
     debit = Column(Numeric(18, 2), nullable=False, default=0)
     credit = Column(Numeric(18, 2), nullable=False, default=0)
-    currency = Column(String(3), nullable=False, default="SYP")
+    currency = Column(String(4), nullable=False, default="SYP")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

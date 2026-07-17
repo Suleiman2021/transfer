@@ -12,6 +12,7 @@ class QrCodeScanScreen extends StatefulWidget {
 class _QrCodeScanScreenState extends State<QrCodeScanScreen> {
   late final MobileScannerController _controller;
   bool _done = false;
+  bool _picking = false;
 
   @override
   void initState() {
@@ -35,18 +36,32 @@ class _QrCodeScanScreenState extends State<QrCodeScanScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-    final capture = await _controller.analyzeImage(picked.path);
-    final value = capture?.barcodes.firstOrNull?.rawValue;
-    if (!mounted) return;
-    if (value == null || value.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لم يتم العثور على QR في الصورة.')),
-      );
-      return;
+    if (_picking || _done) return;
+    setState(() => _picking = true);
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null || !mounted) return;
+      final capture = await _controller.analyzeImage(picked.path);
+      if (!mounted) return;
+      final value = capture?.barcodes.firstOrNull?.rawValue;
+      if (value == null || value.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لم يتم العثور على QR في الصورة.')),
+        );
+        return;
+      }
+      _finish(value);
+    } on Exception catch (e) {
+      if (!mounted) return;
+      final msg = e.toString();
+      if (!msg.contains('already_active')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذر فتح معرض الصور.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _picking = false);
     }
-    _finish(value);
   }
 
   @override
@@ -56,7 +71,7 @@ class _QrCodeScanScreenState extends State<QrCodeScanScreen> {
         title: const Text('قراءة QR'),
         actions: [
           IconButton(
-            onPressed: _pickImage,
+            onPressed: _picking ? null : _pickImage,
             icon: const Icon(Icons.photo_library_rounded),
           ),
         ],
@@ -74,9 +89,18 @@ class _QrCodeScanScreenState extends State<QrCodeScanScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: FilledButton.icon(
-                  onPressed: _pickImage,
-                  icon: const Icon(Icons.image_search_rounded),
-                  label: const Text('اختيار صورة من الملفات'),
+                  onPressed: _picking ? null : _pickImage,
+                  icon: _picking
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.image_search_rounded),
+                  label: Text(_picking ? 'جار التحليل...' : 'اختيار صورة من الملفات'),
                 ),
               ),
             ),

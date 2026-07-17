@@ -113,6 +113,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               const SizedBox(height: 16),
                               TextFormField(
                                 controller: _username,
+                                textDirection: TextDirection.ltr,
+                                onTap: () {
+                                  WidgetsBinding.instance
+                                      .addPostFrameCallback((_) {
+                                    final sel = _username.selection;
+                                    if (sel.isValid && !sel.isCollapsed) {
+                                      _username.selection =
+                                          TextSelection.collapsed(
+                                            offset: sel.extentOffset,
+                                          );
+                                    }
+                                  });
+                                },
                                 decoration: const InputDecoration(
                                   labelText: 'اسم المستخدم',
                                   prefixIcon: Icon(Icons.person_rounded),
@@ -180,34 +193,70 @@ class _BrandHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 26),
       decoration: BoxDecoration(
         gradient: AppTheme.heroGradient,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.brandTeal.withValues(alpha: 0.22),
+            blurRadius: 30,
+            offset: const Offset(0, 16),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.local_shipping_rounded,
-            color: Colors.white,
-            size: 38,
+          // شعار شبكة مالية رقمية: عقدة مركزية بأطراف متصلة (تحويلات/شبكة).
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.30)),
+            ),
+            child: const Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(Icons.hub_rounded, color: Colors.white, size: 38),
+                PositionedDirectional(
+                  bottom: 12,
+                  child: Icon(
+                    Icons.currency_exchange_rounded,
+                    color: Colors.white,
+                    size: 15,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           const Text(
-            'Radical Transfer',
+            'سيدا نتوورك',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,
-              fontSize: 24,
+              fontSize: 26,
+              letterSpacing: 0.3,
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            mode == LoginMode.admin ? 'بوابة الإدارة' : 'بوابة العمليات',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              mode == LoginMode.admin
+                  ? 'بوابة الإدارة'
+                  : 'بوابة الوكلاء والمعتمدين',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
+              ),
             ),
           ),
         ],

@@ -60,7 +60,8 @@ def ensure_user_risk_profile(db: Session, user: User) -> RiskProfile:
     if profile:
         return profile
 
-    defaults = DEFAULT_RISK_SETTINGS.get(user.role, DEFAULT_RISK_SETTINGS[UserRole.agent])
+    lookup_role = UserRole.admin if user.role == UserRole.super_admin else user.role
+    defaults = DEFAULT_RISK_SETTINGS.get(lookup_role, DEFAULT_RISK_SETTINGS[UserRole.agent])
     profile = RiskProfile(user_id=user.id, **defaults)
     db.add(profile)
     db.flush()
@@ -79,6 +80,8 @@ def evaluate_transfer_risk(
     source: Cashbox,
     destination: Cashbox,
     amount: Decimal,
+    *,
+    currency: str = "SYP",
 ) -> RiskEvaluationResult:
     profile = ensure_user_risk_profile(db, performer)
     if not profile.is_active:
@@ -86,8 +89,12 @@ def evaluate_transfer_risk(
 
     alerts: list[RiskAlertDraft] = []
 
+    currency = (currency or "SYP").upper()
     start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
+    # Daily aggregates are scoped to the same currency as the current transfer so
+    # amounts of different currencies are never summed together. Limits are
+    # interpreted in the transfer's own currency.
     today_amount, today_count = (
         db.query(
             func.coalesce(func.sum(Transfer.amount), 0),
@@ -98,6 +105,7 @@ def evaluate_transfer_risk(
                 Transfer.performed_by_id == performer.id,
                 Transfer.created_at >= start_of_day,
                 Transfer.state == TransferState.completed,
+                Transfer.source_currency == currency,
             )
         )
         .one()

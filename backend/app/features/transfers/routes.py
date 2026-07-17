@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_allow_inactive
 from app.features.transfers.schemas import (
+    RemittanceCreateRequest,
     TransferCancelRequest,
     DailyTransferReportRow,
     TransferCreateRequest,
@@ -16,6 +17,7 @@ from app.features.transfers.schemas import (
 )
 from app.features.transfers.service import (
     cancel_transfer,
+    create_remittance,
     create_transfer,
     daily_transfer_report,
     list_pending_transfers,
@@ -27,6 +29,15 @@ from app.features.users.models import User
 
 
 router = APIRouter(prefix="/transfers", tags=["Transfers"])
+
+
+@router.post("/remittance", response_model=TransferResponse)
+def make_remittance(
+    payload: RemittanceCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return create_remittance(db, payload, current_user)
 
 
 @router.post("/", response_model=TransferResponse)

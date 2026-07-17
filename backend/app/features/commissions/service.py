@@ -15,11 +15,13 @@ def upsert_commission_rule(
     external_fee_percent: Decimal | None = None,
     treasury_to_accredited_fee_percent: Decimal | None = None,
     treasury_to_agent_fee_percent: Decimal | None = None,
-    treasury_collection_from_accredited_fee_percent: Decimal | None = None,
-    treasury_collection_from_agent_fee_percent: Decimal | None = None,
-    agent_topup_profit_internal_percent: Decimal | None = None,
-    agent_topup_profit_external_percent: Decimal | None = None,
-    agent_topup_profit_percent: Decimal | None = None,
+    treasury_to_agent_internal_fee_percent: Decimal | None = None,
+    treasury_to_agent_external_fee_percent: Decimal | None = None,
+    treasury_to_accredited_internal_fee_percent: Decimal | None = None,
+    treasury_to_accredited_external_fee_percent: Decimal | None = None,
+    remittance_treasury_percent: Decimal | None = None,
+    remittance_sender_percent: Decimal | None = None,
+    remittance_receiver_percent: Decimal | None = None,
     legacy_fee_percent: Decimal | None = None,
 ) -> CommissionRule:
     rule = db.query(CommissionRule).filter(CommissionRule.role == role).first()
@@ -43,51 +45,25 @@ def upsert_commission_rule(
             rule.treasury_to_agent_fee_percent = Decimal(
                 treasury_to_agent_fee_percent
             )
-        if treasury_collection_from_accredited_fee_percent is not None:
-            rule.treasury_collection_from_accredited_fee_percent = Decimal(
-                treasury_collection_from_accredited_fee_percent
-            )
-        if treasury_collection_from_agent_fee_percent is not None:
-            rule.treasury_collection_from_agent_fee_percent = Decimal(
-                treasury_collection_from_agent_fee_percent
-            )
-
-        if agent_topup_profit_internal_percent is not None:
-            rule.agent_topup_profit_internal_percent = Decimal(
-                agent_topup_profit_internal_percent
-            )
-        if agent_topup_profit_external_percent is not None:
-            rule.agent_topup_profit_external_percent = Decimal(
-                agent_topup_profit_external_percent
-            )
-        if agent_topup_profit_percent is not None:
-            # Legacy compatibility: apply same value to both.
-            rule.agent_topup_profit_internal_percent = Decimal(
-                agent_topup_profit_percent
-            )
-            rule.agent_topup_profit_external_percent = Decimal(
-                agent_topup_profit_percent
-            )
-
-        # Keep the legacy field aligned with the internal value for compatibility.
-        rule.agent_topup_profit_percent = Decimal(
-            rule.agent_topup_profit_internal_percent
-        )
+        if treasury_to_agent_internal_fee_percent is not None:
+            rule.treasury_to_agent_internal_fee_percent = Decimal(treasury_to_agent_internal_fee_percent)
+        if treasury_to_agent_external_fee_percent is not None:
+            rule.treasury_to_agent_external_fee_percent = Decimal(treasury_to_agent_external_fee_percent)
+        if treasury_to_accredited_internal_fee_percent is not None:
+            rule.treasury_to_accredited_internal_fee_percent = Decimal(treasury_to_accredited_internal_fee_percent)
+        if treasury_to_accredited_external_fee_percent is not None:
+            rule.treasury_to_accredited_external_fee_percent = Decimal(treasury_to_accredited_external_fee_percent)
+        if remittance_treasury_percent is not None:
+            rule.remittance_treasury_percent = Decimal(remittance_treasury_percent)
+        if remittance_sender_percent is not None:
+            rule.remittance_sender_percent = Decimal(remittance_sender_percent)
+        if remittance_receiver_percent is not None:
+            rule.remittance_receiver_percent = Decimal(remittance_receiver_percent)
 
         rule.is_active = True
     else:
         initial_internal = Decimal(internal_fee_percent) if internal_fee_percent is not None else (fallback_fee or Decimal("0"))
         initial_external = Decimal(external_fee_percent) if external_fee_percent is not None else (fallback_fee or Decimal("0"))
-        if agent_topup_profit_percent is not None:
-            initial_agent_profit_internal = Decimal(agent_topup_profit_percent)
-            initial_agent_profit_external = Decimal(agent_topup_profit_percent)
-        else:
-            initial_agent_profit_internal = Decimal(
-                agent_topup_profit_internal_percent or Decimal("0")
-            )
-            initial_agent_profit_external = Decimal(
-                agent_topup_profit_external_percent or Decimal("0")
-            )
         rule = CommissionRule(
             role=role,
             internal_fee_percent=initial_internal,
@@ -98,15 +74,13 @@ def upsert_commission_rule(
             treasury_to_agent_fee_percent=Decimal(
                 treasury_to_agent_fee_percent or Decimal("0")
             ),
-            treasury_collection_from_accredited_fee_percent=Decimal(
-                treasury_collection_from_accredited_fee_percent or Decimal("0")
-            ),
-            treasury_collection_from_agent_fee_percent=Decimal(
-                treasury_collection_from_agent_fee_percent or Decimal("0")
-            ),
-            agent_topup_profit_internal_percent=initial_agent_profit_internal,
-            agent_topup_profit_external_percent=initial_agent_profit_external,
-            agent_topup_profit_percent=initial_agent_profit_internal,
+            treasury_to_agent_internal_fee_percent=Decimal(treasury_to_agent_internal_fee_percent or Decimal("0")),
+            treasury_to_agent_external_fee_percent=Decimal(treasury_to_agent_external_fee_percent or Decimal("0")),
+            treasury_to_accredited_internal_fee_percent=Decimal(treasury_to_accredited_internal_fee_percent or Decimal("0")),
+            treasury_to_accredited_external_fee_percent=Decimal(treasury_to_accredited_external_fee_percent or Decimal("0")),
+            remittance_treasury_percent=Decimal(remittance_treasury_percent or Decimal("0")),
+            remittance_sender_percent=Decimal(remittance_sender_percent or Decimal("0")),
+            remittance_receiver_percent=Decimal(remittance_receiver_percent or Decimal("0")),
             is_active=True,
         )
         db.add(rule)
@@ -116,50 +90,6 @@ def upsert_commission_rule(
     return rule
 
 
-def get_commission_percent(db: Session, role: UserRole) -> Decimal:
-    # Backward compatible fallback used by old call sites.
-    if role == UserRole.admin:
-        return Decimal("0")
-
-    rule = db.query(CommissionRule).filter(CommissionRule.role == role, CommissionRule.is_active == True).first()
-    return Decimal(rule.internal_fee_percent) if rule else Decimal("0")
-
-
-def get_commission_values(
-    db: Session,
-    role: UserRole,
-    *,
-    is_cross_country: bool,
-    sender_profit_enabled: bool = False,
-) -> tuple[Decimal, Decimal]:
-    if role == UserRole.admin:
-        return (Decimal("0"), Decimal("0"))
-
-    rule = (
-        db.query(CommissionRule)
-        .filter(CommissionRule.role == role, CommissionRule.is_active == True)
-        .first()
-    )
-    if not rule:
-        return (Decimal("0"), Decimal("0"))
-
-    commission_percent = (
-        Decimal(rule.external_fee_percent)
-        if is_cross_country
-        else Decimal(rule.internal_fee_percent)
-    )
-    agent_profit_percent = (
-        (
-            Decimal(rule.agent_topup_profit_external_percent)
-            if is_cross_country
-            else Decimal(rule.agent_topup_profit_internal_percent)
-        )
-        if sender_profit_enabled
-        else Decimal("0")
-    )
-    return (commission_percent, agent_profit_percent)
-
-
 def list_commission_rules(db: Session) -> list[CommissionRule]:
     return db.query(CommissionRule).order_by(CommissionRule.role.asc()).all()
 
@@ -167,6 +97,8 @@ def list_commission_rules(db: Session) -> list[CommissionRule]:
 def get_treasury_funding_commission_percent(
     db: Session,
     destination_type: CashboxType,
+    *,
+    is_cross_country: bool = False,
 ) -> Decimal:
     admin_rule = (
         db.query(CommissionRule)
@@ -177,28 +109,29 @@ def get_treasury_funding_commission_percent(
         return Decimal("0")
 
     if destination_type == CashboxType.agent:
-        return Decimal(admin_rule.treasury_to_agent_fee_percent or 0)
+        if is_cross_country:
+            return Decimal(admin_rule.treasury_to_agent_external_fee_percent or 0)
+        return Decimal(admin_rule.treasury_to_agent_internal_fee_percent or 0)
     if destination_type == CashboxType.accredited:
-        return Decimal(admin_rule.treasury_to_accredited_fee_percent or 0)
+        if is_cross_country:
+            return Decimal(admin_rule.treasury_to_accredited_external_fee_percent or 0)
+        return Decimal(admin_rule.treasury_to_accredited_internal_fee_percent or 0)
     return Decimal("0")
 
 
-def get_treasury_collection_commission_percent(
-    db: Session,
-    source_type: CashboxType,
-) -> Decimal:
+def get_remittance_commission_percents(db: Session) -> tuple[Decimal, Decimal, Decimal]:
+    """Returns (treasury_percent, sender_percent, receiver_percent) for remittances."""
     admin_rule = (
         db.query(CommissionRule)
         .filter(CommissionRule.role == UserRole.admin, CommissionRule.is_active == True)
         .first()
     )
     if not admin_rule:
-        return Decimal("0")
+        return (Decimal("0"), Decimal("0"), Decimal("0"))
+    return (
+        Decimal(admin_rule.remittance_treasury_percent or 0),
+        Decimal(admin_rule.remittance_sender_percent or 0),
+        Decimal(admin_rule.remittance_receiver_percent or 0),
+    )
 
-    if source_type == CashboxType.agent:
-        return Decimal(admin_rule.treasury_collection_from_agent_fee_percent or 0)
-    if source_type == CashboxType.accredited:
-        return Decimal(
-            admin_rule.treasury_collection_from_accredited_fee_percent or 0
-        )
-    return Decimal("0")
+

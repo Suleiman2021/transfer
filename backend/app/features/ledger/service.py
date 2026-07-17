@@ -8,12 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.features.cashboxes.models import Cashbox
 from app.features.ledger.models import LedgerAccount, LedgerAccountType, LedgerEntry, LedgerLine
-from app.features.transfers.models import Transfer, TransferType
+from app.features.transfers.models import Transfer
 
 
 MONEY_QUANT = Decimal("0.01")
 COMMISSION_REVENUE_CODE = "REV_COMMISSION"
-CUSTOMER_CASHOUT_CLEARING_CODE = "CLR_CUSTOMER_CASHOUT"
+OVER_SHORT_ADJUSTMENT_CODE = "ADJ_OVER_SHORT"
 
 
 @dataclass
@@ -70,18 +70,18 @@ def ensure_default_ledger_accounts(db: Session) -> None:
     )
     _ensure_system_account(
         db,
-        code=CUSTOMER_CASHOUT_CLEARING_CODE,
-        name="Customer Cashout Clearing",
-        account_type=LedgerAccountType.asset,
+        code=OVER_SHORT_ADJUSTMENT_CODE,
+        name="Over/Short Adjustment",
+        account_type=LedgerAccountType.equity,
     )
 
 
-def ensure_customer_cashout_clearing_account(db: Session) -> LedgerAccount:
+def ensure_over_short_account(db: Session) -> LedgerAccount:
     return _ensure_system_account(
         db,
-        code=CUSTOMER_CASHOUT_CLEARING_CODE,
-        name="Customer Cashout Clearing",
-        account_type=LedgerAccountType.asset,
+        code=OVER_SHORT_ADJUSTMENT_CODE,
+        name="Over/Short Adjustment",
+        account_type=LedgerAccountType.equity,
     )
 
 
@@ -118,14 +118,29 @@ def _validate_balanced_lines(lines: list[LedgerLineInput]) -> tuple[Decimal, Dec
     if len(lines) < 2:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Ledger entry requires at least 2 lines")
 
-    total_debit = _q(sum((Decimal(line.debit) for line in lines), Decimal("0")))
-    total_credit = _q(sum((Decimal(line.credit) for line in lines), Decimal("0")))
+    # Each currency must balance independently. Debits and credits across
+    # different currencies are never offset against each other (no conversion).
+    per_currency: dict[str, tuple[Decimal, Decimal]] = {}
+    for line in lines:
+        currency = (line.currency or "SYP").upper()
+        debit, credit = per_currency.get(currency, (Decimal("0"), Decimal("0")))
+        per_currency[currency] = (debit + Decimal(line.debit), credit + Decimal(line.credit))
+
+    total_debit = Decimal("0")
+    total_credit = Decimal("0")
+    for currency, (debit, credit) in per_currency.items():
+        debit = _q(debit)
+        credit = _q(credit)
+        if debit != credit:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Ledger entry must be balanced per currency ({currency})",
+            )
+        total_debit += debit
+        total_credit += credit
 
     if total_debit <= 0 or total_credit <= 0:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Debit and credit totals must be positive")
-
-    if total_debit != total_credit:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Ledger entry must be balanced")
 
     return total_debit, total_credit
 
@@ -192,35 +207,10 @@ def post_transfer_ledger_entry(db: Session, transfer: Transfer, created_by_id: U
     amount = _q(transfer.amount)
     commission = _q(transfer.commission_amount)
 
-    if getattr(transfer, "operation_type", None) == TransferType.customer_cashout:
-        clearing_account = ensure_customer_cashout_clearing_account(db)
-        return create_ledger_entry(
-            db,
-            created_by_id=created_by_id,
-            transfer_id=transfer.id,
-            reference_type="transfer",
-            reference_id=transfer.id,
-            description=f"Customer cashout {transfer.id}",
-            lines=[
-                LedgerLineInput(
-                    account_id=clearing_account.id,
-                    debit=amount,
-                    credit=Decimal("0"),
-                    currency=transfer.destination_currency,
-                ),
-                LedgerLineInput(
-                    account_id=source_account.id,
-                    debit=Decimal("0"),
-                    credit=amount,
-                    currency=transfer.source_currency,
-                ),
-            ],
-        )
-
     source_credit = _q(amount + commission)
 
     lines = [
-        LedgerLineInput(account_id=destination_account.id, debit=amount, credit=Decimal("0"), currency=transfer.destination_currency),
+        LedgerLineInput(account_id=destination_account.id, debit=amount, credit=Decimal("0"), currency=transfer.source_currency),
         LedgerLineInput(account_id=source_account.id, debit=Decimal("0"), credit=source_credit, currency=transfer.source_currency),
     ]
 
@@ -231,7 +221,7 @@ def post_transfer_ledger_entry(db: Session, transfer: Transfer, created_by_id: U
                 account_id=treasury_account.id,
                 debit=commission,
                 credit=Decimal("0"),
-                currency=transfer.destination_currency,
+                currency=transfer.source_currency,
             ),
         )
 
@@ -265,18 +255,21 @@ def get_entry(db: Session, entry_id: UUID) -> LedgerEntry:
 
 
 def get_trial_balance_rows(db: Session) -> list[dict]:
+    # Totals are grouped per account AND per currency. Balances of different
+    # currencies are never summed together (there is no conversion).
     rows = (
         db.query(
             LedgerAccount.id,
             LedgerAccount.code,
             LedgerAccount.name,
             LedgerAccount.account_type,
+            LedgerLine.currency.label("currency"),
             func.coalesce(func.sum(LedgerLine.debit), 0).label("debit"),
             func.coalesce(func.sum(LedgerLine.credit), 0).label("credit"),
         )
-        .outerjoin(LedgerLine, LedgerLine.account_id == LedgerAccount.id)
-        .group_by(LedgerAccount.id)
-        .order_by(LedgerAccount.code.asc())
+        .join(LedgerLine, LedgerLine.account_id == LedgerAccount.id)
+        .group_by(LedgerAccount.id, LedgerLine.currency)
+        .order_by(LedgerAccount.code.asc(), LedgerLine.currency.asc())
         .all()
     )
 
@@ -290,6 +283,7 @@ def get_trial_balance_rows(db: Session) -> list[dict]:
                 "account_code": row.code,
                 "account_name": row.name,
                 "account_type": row.account_type,
+                "currency": (row.currency or "SYP").upper(),
                 "debit": debit,
                 "credit": credit,
                 "balance": _q(debit - credit),

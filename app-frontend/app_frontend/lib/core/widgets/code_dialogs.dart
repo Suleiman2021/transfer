@@ -2,6 +2,11 @@ import '../entities/app_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// ---------------------------------------------------------------------------
+// Approval code entry dialog — uses StatefulWidget so the TextEditingController
+// has a proper lifecycle tied to the widget tree instead of .whenComplete().
+// ---------------------------------------------------------------------------
+
 Future<void> showTransferApprovalCodeDialog(
   BuildContext context,
   TransferModel transfer,
@@ -50,35 +55,68 @@ Future<String?> promptTransferApprovalCode(
   BuildContext context,
   TransferModel transfer,
 ) {
-  final controller = TextEditingController();
   return showDialog<String>(
     context: context,
-    builder: (context) {
-      return AlertDialog(
-        scrollable: true,
-        title: const Text('إدخال رمز الاعتماد'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: const InputDecoration(
-            labelText: 'رمز الاعتماد',
-            helperText: 'اكتب الرمز الذي وصل للطرف المستلم.',
-          ),
-          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+    builder: (context) => const _ApprovalCodeDialog(),
+  );
+}
+
+class _ApprovalCodeDialog extends StatefulWidget {
+  const _ApprovalCodeDialog();
+
+  @override
+  State<_ApprovalCodeDialog> createState() => _ApprovalCodeDialogState();
+}
+
+class _ApprovalCodeDialogState extends State<_ApprovalCodeDialog> {
+  final _controller = TextEditingController();
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(
+      () => setState(() => _hasText = _controller.text.trim().isNotEmpty),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final code = _controller.text.trim();
+    if (code.isNotEmpty) Navigator.of(context).pop(code);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      scrollable: true,
+      title: const Text('إدخال رمز الاعتماد'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: const InputDecoration(
+          labelText: 'رمز الاعتماد',
+          helperText: 'اكتب الرمز الذي وصل للطرف المستلم.',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('اعتماد'),
-          ),
-        ],
-      );
-    },
-  ).whenComplete(controller.dispose);
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        ElevatedButton(
+          onPressed: _hasText ? _submit : null,
+          child: const Text('اعتماد'),
+        ),
+      ],
+    );
+  }
 }

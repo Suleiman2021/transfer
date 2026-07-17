@@ -43,37 +43,20 @@ class _FakeDB:
 
 
 class TransferPermissionTests(unittest.TestCase):
-    def test_agent_cannot_make_direct_network_transfer(self):
-        source = SimpleNamespace(type=CashboxType.accredited, manager_user_id="owner-1", id="cashbox-1")
-        destination = SimpleNamespace(type=CashboxType.accredited, manager_user_id="owner-2", id="cashbox-2")
+    def test_agent_topup_to_accredited_is_allowed(self):
+        # Op3: agent pushes a top-up from its own agent cashbox to an accredited cashbox.
+        source = SimpleNamespace(type=CashboxType.agent, manager_user_id="agent-1", id="agent-box")
+        destination = SimpleNamespace(type=CashboxType.accredited, manager_user_id="owner-1", id="acc-box")
         performer = SimpleNamespace(
             role=UserRole.agent,
             id="agent-1",
             managed_cashboxes=[SimpleNamespace(id="agent-box", is_active=True, type=CashboxType.agent)],
         )
 
-        with self.assertRaises(HTTPException) as ctx:
-            transfers_service._validate_transfer_scope(source, destination, performer, TransferType.network_transfer)
+        transfers_service._validate_transfer_scope(source, destination, performer, TransferType.topup)
 
-        self.assertEqual(ctx.exception.status_code, 403)
-        self.assertIn("direct transfer route", ctx.exception.detail)
-
-    def test_accredited_must_transfer_from_owned_cashbox(self):
-        source = SimpleNamespace(type=CashboxType.accredited, manager_user_id="other-user", id="source-box")
-        destination = SimpleNamespace(type=CashboxType.accredited, manager_user_id="owner-2", id="destination-box")
-        performer = SimpleNamespace(
-            role=UserRole.accredited,
-            id="owner-1",
-            managed_cashboxes=[SimpleNamespace(id="owned-box", is_active=True, type=CashboxType.accredited)],
-        )
-
-        with self.assertRaises(HTTPException) as ctx:
-            transfers_service._validate_transfer_scope(source, destination, performer, TransferType.network_transfer)
-
-        self.assertEqual(ctx.exception.status_code, 403)
-        self.assertIn("own accredited cashboxes", ctx.exception.detail)
-
-    def test_accredited_topup_request_targets_owned_cashbox(self):
+    def test_accredited_cannot_initiate_funding(self):
+        # Accredited users move money only through customer remittances, never create_transfer.
         source = SimpleNamespace(type=CashboxType.agent, manager_user_id="agent-1", id="agent-box")
         destination = SimpleNamespace(type=CashboxType.accredited, manager_user_id="owner-1", id="owned-box")
         performer = SimpleNamespace(
@@ -82,7 +65,25 @@ class TransferPermissionTests(unittest.TestCase):
             managed_cashboxes=[SimpleNamespace(id="owned-box", is_active=True, type=CashboxType.accredited)],
         )
 
-        transfers_service._validate_transfer_scope(source, destination, performer, TransferType.topup)
+        with self.assertRaises(HTTPException) as ctx:
+            transfers_service._validate_transfer_scope(source, destination, performer, TransferType.topup)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_agent_cannot_self_fund_from_treasury(self):
+        # agent_funding (treasury → agent) is admin-initiated only.
+        source = SimpleNamespace(type=CashboxType.treasury, manager_user_id=None, id="treasury")
+        destination = SimpleNamespace(type=CashboxType.agent, manager_user_id="agent-1", id="agent-box")
+        performer = SimpleNamespace(
+            role=UserRole.agent,
+            id="agent-1",
+            managed_cashboxes=[SimpleNamespace(id="agent-box", is_active=True, type=CashboxType.agent)],
+        )
+
+        with self.assertRaises(HTTPException) as ctx:
+            transfers_service._validate_transfer_scope(source, destination, performer, TransferType.agent_funding)
+
+        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_admin_can_move_balance_from_treasury_to_agent(self):
         source = SimpleNamespace(type=CashboxType.treasury, manager_user_id=None, id="treasury")
@@ -130,18 +131,19 @@ class TransferPermissionTests(unittest.TestCase):
             state=TransferState.initiated,
             review_required=True,
         )
-        source = SimpleNamespace(id="src", type=CashboxType.accredited, balance="1500.00", is_active=True)
-        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="50.00", is_active=True)
-        treasury = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="100.00", is_active=True)
+        source = SimpleNamespace(id="src", type=CashboxType.accredited, balance="1500.00", is_active=True, currency_balances={"SYP": "1500.00"})
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="50.00", is_active=True, currency_balances={"SYP": "50.00"})
+        treasury = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="100.00", is_active=True, currency_balances={"SYP": "100.00"})
 
+        # Cashboxes are locked in sorted UUID order: "dst" < "src", so destination comes first.
         with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
             transfers_service, "_get_locked_treasury", return_value=treasury
         ):
             transfers_service._apply_transfer_posting(None, transfer)
 
-        self.assertEqual(source.balance, transfers_service._q_money("786.00"))
-        self.assertEqual(destination.balance, transfers_service._q_money("750.00"))
-        self.assertEqual(treasury.balance, transfers_service._q_money("114.00"))
+        self.assertEqual(source.currency_balances.get("SYP"), "786.00")
+        self.assertEqual(destination.currency_balances.get("SYP"), "750.00")
+        self.assertEqual(treasury.currency_balances.get("SYP"), "114.00")
         self.assertEqual(transfer.state, TransferState.completed)
         self.assertFalse(transfer.review_required)
 
@@ -154,10 +156,11 @@ class TransferPermissionTests(unittest.TestCase):
             state=TransferState.initiated,
             review_required=True,
         )
-        source = SimpleNamespace(id="src", type=CashboxType.accredited, balance="700.00", is_active=True)
-        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="50.00", is_active=True)
-        treasury = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="100.00", is_active=True)
+        source = SimpleNamespace(id="src", type=CashboxType.accredited, balance="700.00", is_active=True, currency_balances={"SYP": "700.00"})
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="50.00", is_active=True, currency_balances={"SYP": "50.00"})
+        treasury = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="100.00", is_active=True, currency_balances={"SYP": "100.00"})
 
+        # Cashboxes are locked in sorted UUID order: "dst" < "src", so destination comes first.
         with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
             transfers_service, "_get_locked_treasury", return_value=treasury
         ):
@@ -175,17 +178,18 @@ class TransferPermissionTests(unittest.TestCase):
             to_cashbox_id="dst",
             operation_type=TransferType.topup,
         )
-        source = SimpleNamespace(id="src", type=CashboxType.treasury, balance="500.00", is_active=True)
-        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="700.00", is_active=True)
+        source = SimpleNamespace(id="src", type=CashboxType.treasury, balance="500.00", is_active=True, currency_balances={"SYP": "500.00"})
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="700.00", is_active=True, currency_balances={"SYP": "700.00"})
         treasury = source
 
+        # Cashboxes are locked in sorted UUID order: "dst" < "src", so destination comes first.
         with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
             transfers_service, "_get_locked_treasury", return_value=treasury
         ):
             transfers_service._apply_transfer_cancellation(None, transfer)
 
-        self.assertEqual(source.balance, transfers_service._q_money("1000.00"))
-        self.assertEqual(destination.balance, transfers_service._q_money("200.00"))
+        self.assertEqual(source.currency_balances.get("SYP"), "1000.00")
+        self.assertEqual(destination.currency_balances.get("SYP"), "200.00")
 
     def test_treasury_transfer_cancellation_does_not_add_commission_twice(self):
         transfer = SimpleNamespace(
@@ -195,17 +199,18 @@ class TransferPermissionTests(unittest.TestCase):
             to_cashbox_id="dst",
             operation_type=TransferType.topup,
         )
-        source = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="500.00", is_active=True)
-        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="500.00", is_active=True)
+        source = SimpleNamespace(id="treasury", type=CashboxType.treasury, balance="500.00", is_active=True, currency_balances={"SYP": "500.00"})
+        destination = SimpleNamespace(id="dst", type=CashboxType.accredited, balance="500.00", is_active=True, currency_balances={"SYP": "500.00"})
         treasury = source
 
+        # Cashboxes are locked in sorted UUID order: "dst" < "treasury", so destination comes first.
         with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), patch.object(
             transfers_service, "_get_locked_treasury", return_value=treasury
         ):
             transfers_service._apply_transfer_cancellation(None, transfer)
 
-        self.assertEqual(source.balance, transfers_service._q_money("1000.00"))
-        self.assertEqual(destination.balance, transfers_service._q_money("0.00"))
+        self.assertEqual(source.currency_balances.get("SYP"), "1000.00")
+        self.assertIsNone(destination.currency_balances.get("SYP"))
 
     def test_cancel_transfer_requires_admin_role(self):
         reviewer = SimpleNamespace(role=UserRole.agent)
@@ -221,19 +226,6 @@ class TransferPermissionTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 403)
 
     def test_agent_topup_splits_gross_amount_into_net_and_fees(self):
-        credited, commission, profit = (
-            transfers_service._split_requested_amount_with_fees(
-                Decimal("510.00"),
-                Decimal("1.00"),
-                Decimal("1.00"),
-            )
-        )
-
-        self.assertEqual(credited, Decimal("500.00"))
-        self.assertEqual(commission, Decimal("5.00"))
-        self.assertEqual(profit, Decimal("5.00"))
-
-    def test_accredited_network_transfer_splits_gross_amount(self):
         credited, commission, profit = (
             transfers_service._split_requested_amount_with_fees(
                 Decimal("510.00"),
@@ -279,89 +271,57 @@ class TransferPermissionTests(unittest.TestCase):
         )
         self.assertEqual(role, UserRole.agent)
 
-    def test_agent_funding_pending_review_is_for_admin_not_requesting_agent(self):
+    def test_initiator_cannot_self_approve(self):
+        # Even the destination manager cannot approve a request they initiated.
         transfer = SimpleNamespace(
             operation_type=TransferType.agent_funding,
             performed_by_id="agent-1",
         )
-        source = SimpleNamespace(
-            id="treasury-box",
-            type=CashboxType.treasury,
-            manager_user_id=None,
-        )
-        destination = SimpleNamespace(
-            id="agent-box",
-            type=CashboxType.agent,
-            manager_user_id="agent-1",
-        )
-        admin = SimpleNamespace(role=UserRole.admin, managed_cashboxes=[])
+        source = SimpleNamespace(id="treasury-box", type=CashboxType.treasury, manager_user_id=None)
+        destination = SimpleNamespace(id="agent-box", type=CashboxType.agent, manager_user_id="agent-1")
+        admin = SimpleNamespace(id="admin-1", role=UserRole.admin, managed_cashboxes=[])
         agent = SimpleNamespace(
+            id="agent-1",
             role=UserRole.agent,
-            managed_cashboxes=[
-                SimpleNamespace(
-                    id="agent-box",
-                    is_active=True,
-                    type=CashboxType.agent,
-                )
-            ],
+            managed_cashboxes=[SimpleNamespace(id="agent-box", is_active=True, type=CashboxType.agent)],
         )
 
         self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                admin, transfer, source, destination
-            )
+            transfers_service._can_user_review_pending_transfer(admin, transfer, source, destination)
         )
         self.assertFalse(
-            transfers_service._can_user_review_pending_transfer(
-                agent, transfer, source, destination
-            )
+            transfers_service._can_user_review_pending_transfer(agent, transfer, source, destination)
         )
 
-    def test_topup_request_from_accredited_is_reviewed_by_source_agent(self):
+    def test_agent_topup_is_reviewed_by_destination_accredited_not_source_agent(self):
+        # Op3: agent initiates a top-up to an accredited cashbox; the accredited
+        # (recipient) confirms, the source agent never approves.
         transfer = SimpleNamespace(
             operation_type=TransferType.topup,
-            performed_by_id="accredited-1",
+            performed_by_id="agent-1",
         )
-        source = SimpleNamespace(
-            id="agent-box",
-            type=CashboxType.agent,
-            manager_user_id="agent-1",
-        )
+        source = SimpleNamespace(id="agent-box", type=CashboxType.agent, manager_user_id="agent-1")
         destination = SimpleNamespace(
-            id="accredited-box",
-            type=CashboxType.accredited,
-            manager_user_id="accredited-1",
+            id="accredited-box", type=CashboxType.accredited, manager_user_id="accredited-1"
         )
         agent = SimpleNamespace(
+            id="agent-1",
             role=UserRole.agent,
-            managed_cashboxes=[
-                SimpleNamespace(
-                    id="agent-box",
-                    is_active=True,
-                    type=CashboxType.agent,
-                )
-            ],
+            managed_cashboxes=[SimpleNamespace(id="agent-box", is_active=True, type=CashboxType.agent)],
         )
         accredited = SimpleNamespace(
+            id="accredited-1",
             role=UserRole.accredited,
             managed_cashboxes=[
-                SimpleNamespace(
-                    id="accredited-box",
-                    is_active=True,
-                    type=CashboxType.accredited,
-                )
+                SimpleNamespace(id="accredited-box", is_active=True, type=CashboxType.accredited)
             ],
         )
 
-        self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                agent, transfer, source, destination
-            )
-        )
         self.assertFalse(
-            transfers_service._can_user_review_pending_transfer(
-                accredited, transfer, source, destination
-            )
+            transfers_service._can_user_review_pending_transfer(agent, transfer, source, destination)
+        )
+        self.assertTrue(
+            transfers_service._can_user_review_pending_transfer(accredited, transfer, source, destination)
         )
 
     def test_admin_initiated_agent_funding_can_be_reviewed_by_admin_or_agent(self):
@@ -369,130 +329,30 @@ class TransferPermissionTests(unittest.TestCase):
             operation_type=TransferType.agent_funding,
             performed_by_id="admin-1",
         )
-        source = SimpleNamespace(
-            id="treasury-box",
-            type=CashboxType.treasury,
-            manager_user_id=None,
-        )
-        destination = SimpleNamespace(
-            id="agent-box",
-            type=CashboxType.agent,
-            manager_user_id="agent-1",
-        )
-        admin = SimpleNamespace(role=UserRole.admin, managed_cashboxes=[])
+        source = SimpleNamespace(id="treasury-box", type=CashboxType.treasury, manager_user_id=None)
+        destination = SimpleNamespace(id="agent-box", type=CashboxType.agent, manager_user_id="agent-1")
+        admin = SimpleNamespace(id="admin-1", role=UserRole.admin, managed_cashboxes=[])
         agent = SimpleNamespace(
+            id="agent-1",
             role=UserRole.agent,
-            managed_cashboxes=[
-                SimpleNamespace(
-                    id="agent-box",
-                    is_active=True,
-                    type=CashboxType.agent,
-                )
-            ],
+            managed_cashboxes=[SimpleNamespace(id="agent-box", is_active=True, type=CashboxType.agent)],
         )
 
         self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                admin, transfer, source, destination
-            )
+            transfers_service._can_user_review_pending_transfer(admin, transfer, source, destination)
         )
         self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                agent, transfer, source, destination
-            )
+            transfers_service._can_user_review_pending_transfer(agent, transfer, source, destination)
         )
 
-    def test_admin_collection_from_agent_can_be_reviewed_by_admin_or_agent(self):
-        transfer = SimpleNamespace(
-            operation_type=TransferType.agent_collection,
-            performed_by_id="admin-1",
-        )
-        source = SimpleNamespace(
-            id="agent-box",
-            type=CashboxType.agent,
-            manager_user_id="agent-1",
-        )
-        destination = SimpleNamespace(
-            id="treasury-box",
-            type=CashboxType.treasury,
-            manager_user_id=None,
-        )
-        admin = SimpleNamespace(role=UserRole.admin, managed_cashboxes=[])
-        agent = SimpleNamespace(
-            role=UserRole.agent,
-            managed_cashboxes=[
-                SimpleNamespace(
-                    id="agent-box",
-                    is_active=True,
-                    type=CashboxType.agent,
-                )
-            ],
-        )
-
-        self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                admin, transfer, source, destination
-            )
-        )
-        self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                agent, transfer, source, destination
-            )
-        )
-
-    def test_admin_collection_from_accredited_can_be_reviewed_by_admin_or_accredited(self):
-        transfer = SimpleNamespace(
-            operation_type=TransferType.collection,
-            performed_by_id="admin-1",
-        )
-        source = SimpleNamespace(
-            id="accredited-box",
-            type=CashboxType.accredited,
-            manager_user_id="accredited-1",
-        )
-        destination = SimpleNamespace(
-            id="treasury-box",
-            type=CashboxType.treasury,
-            manager_user_id=None,
-        )
-        admin = SimpleNamespace(role=UserRole.admin, managed_cashboxes=[])
-        accredited = SimpleNamespace(
-            role=UserRole.accredited,
-            managed_cashboxes=[
-                SimpleNamespace(
-                    id="accredited-box",
-                    is_active=True,
-                    type=CashboxType.accredited,
-                )
-            ],
-        )
-
-        self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                admin, transfer, source, destination
-            )
-        )
-        self.assertTrue(
-            transfers_service._can_user_review_pending_transfer(
-                accredited, transfer, source, destination
-            )
-        )
-
-    def test_customer_cashout_manual_review_follows_risk_result(self):
+    def test_all_operations_require_manual_review(self):
         performer = SimpleNamespace(role=UserRole.accredited)
 
-        self.assertFalse(
-            transfers_service._should_require_manual_review(
-                performer,
-                TransferType.customer_cashout,
-                risk_requires_review=False,
-            )
-        )
         self.assertTrue(
             transfers_service._should_require_manual_review(
                 performer,
-                TransferType.customer_cashout,
-                risk_requires_review=True,
+                TransferType.topup,
+                risk_requires_review=False,
             )
         )
 
@@ -598,50 +458,135 @@ class LedgerPostingTests(unittest.TestCase):
         self.assertEqual(lines[0].account_id, "dst-account")
         self.assertEqual(lines[1].account_id, "src-account")
 
-    def test_customer_cashout_posts_against_clearing_account(self):
+
+class LedgerCurrencyTests(unittest.TestCase):
+    """The ledger must balance each currency independently (no conversion)."""
+
+    def test_single_currency_entry_balances(self):
+        lines = [
+            ledger_service.LedgerLineInput(account_id="a", debit=Decimal("100"), credit=Decimal("0"), currency="SYP"),
+            ledger_service.LedgerLineInput(account_id="b", debit=Decimal("0"), credit=Decimal("100"), currency="SYP"),
+        ]
+        total_debit, total_credit = ledger_service._validate_balanced_lines(lines)
+        self.assertEqual(total_debit, Decimal("100.00"))
+        self.assertEqual(total_credit, Decimal("100.00"))
+
+    def test_cross_currency_entry_is_rejected_even_if_totals_match(self):
+        # 100 USD debit vs 100 SYP credit: numerically equal but not balanced per currency.
+        lines = [
+            ledger_service.LedgerLineInput(account_id="a", debit=Decimal("100"), credit=Decimal("0"), currency="USD"),
+            ledger_service.LedgerLineInput(account_id="b", debit=Decimal("0"), credit=Decimal("100"), currency="SYP"),
+        ]
+        with self.assertRaises(HTTPException) as ctx:
+            ledger_service._validate_balanced_lines(lines)
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("per currency", str(ctx.exception.detail))
+
+
+class CurrencyBalanceTests(unittest.TestCase):
+    """Verify per-currency balance tracking for non-SYP transfers."""
+
+    def test_usd_transfer_debits_source_usd_and_credits_destination_usd(self):
+        """USD transfer: amounts are denominated directly in USD (no conversion)."""
         transfer = SimpleNamespace(
-            id="tx-cashout",
+            amount="50.00",            # 50 USD credited to destination
+            commission_amount="1.00",  # 1 USD commission to treasury
             from_cashbox_id="src",
-            to_cashbox_id="src",
-            treasury_cashbox_id="treasury",
-            operation_type=TransferType.customer_cashout,
-            amount="250.00",
-            commission_amount="0.00",
-            source_currency="SYP",
-            destination_currency="SYP",
+            to_cashbox_id="dst",
+            state=TransferState.initiated,
+            review_required=False,
+            source_currency="USD",
         )
-        source_cashbox = SimpleNamespace(id="src", name="Source")
-        treasury_cashbox = SimpleNamespace(id="treasury", name="Treasury")
-        source_account = SimpleNamespace(id="src-account")
-        destination_account = SimpleNamespace(id="dst-account")
-        treasury_account = SimpleNamespace(id="treasury-account")
-        clearing_account = SimpleNamespace(id="cashout-clearing-account")
-        captured = {}
+        source = SimpleNamespace(
+            id="src", type=CashboxType.accredited,
+            is_active=True, currency_balances={"USD": "200.00"},
+        )
+        destination = SimpleNamespace(
+            id="dst", type=CashboxType.accredited,
+            is_active=True, currency_balances={},
+        )
+        treasury = SimpleNamespace(
+            id="treasury", type=CashboxType.treasury,
+            is_active=True, currency_balances={},
+        )
 
-        fake_db = _FakeDB([None, source_cashbox, source_cashbox, treasury_cashbox])
+        with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), \
+             patch.object(transfers_service, "_get_locked_treasury", return_value=treasury):
+            transfers_service._apply_transfer_posting(None, transfer)
 
-        def _capture_entry(db, **kwargs):
-            captured.update(kwargs)
-            return "ok"
+        # source: had 200 USD, sent 50 + 1 commission = 51 USD
+        self.assertEqual(source.currency_balances.get("USD"), "149.00")
+        # destination: received 50 USD
+        self.assertEqual(destination.currency_balances.get("USD"), "50.00")
+        # treasury: received 1 USD commission
+        self.assertEqual(treasury.currency_balances.get("USD"), "1.00")
 
-        with patch.object(ledger_service, "ensure_default_ledger_accounts"), patch.object(
-            ledger_service,
-            "ensure_cashbox_ledger_account",
-            side_effect=[source_account, destination_account, treasury_account],
-        ), patch.object(
-            ledger_service,
-            "ensure_customer_cashout_clearing_account",
-            return_value=clearing_account,
-        ), patch.object(ledger_service, "create_ledger_entry", side_effect=_capture_entry):
-            result = ledger_service.post_transfer_ledger_entry(fake_db, transfer, created_by_id="admin-1")
+    def test_usd_transfer_cancellation_restores_usd_balances(self):
+        transfer = SimpleNamespace(
+            amount="50.00",
+            commission_amount="1.00",
+            from_cashbox_id="src",
+            to_cashbox_id="dst",
+            operation_type=TransferType.topup,
+            source_currency="USD",
+        )
+        source = SimpleNamespace(
+            id="src", type=CashboxType.accredited,
+            is_active=True, currency_balances={"USD": "149.00"},
+        )
+        destination = SimpleNamespace(
+            id="dst", type=CashboxType.accredited,
+            is_active=True, currency_balances={"USD": "50.00"},
+        )
+        treasury = SimpleNamespace(
+            id="treasury", type=CashboxType.treasury,
+            is_active=True, currency_balances={"USD": "1.00"},
+        )
 
-        self.assertEqual(result, "ok")
-        lines = captured["lines"]
-        self.assertEqual(len(lines), 2)
-        self.assertEqual(lines[0].account_id, "cashout-clearing-account")
-        self.assertEqual(lines[0].debit, Decimal("250.00"))
-        self.assertEqual(lines[1].account_id, "src-account")
-        self.assertEqual(lines[1].credit, Decimal("250.00"))
+        with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), \
+             patch.object(transfers_service, "_get_locked_treasury", return_value=treasury):
+            transfers_service._apply_transfer_cancellation(None, transfer)
+
+        # Restored: source gets back 51 USD
+        self.assertEqual(source.currency_balances.get("USD"), "200.00")
+        # Reversed: destination lost 50 USD
+        self.assertIsNone(destination.currency_balances.get("USD"))
+        # Reversed: treasury lost 1 USD
+        self.assertIsNone(treasury.currency_balances.get("USD"))
+
+    def test_syp_transfer_only_affects_syp_balance(self):
+        transfer = SimpleNamespace(
+            amount="100000.00",
+            commission_amount="1250.00",
+            from_cashbox_id="src",
+            to_cashbox_id="dst",
+            state=TransferState.initiated,
+            review_required=False,
+            source_currency="SYP",
+            exchange_rate="1",
+        )
+        source = SimpleNamespace(
+            id="src", type=CashboxType.accredited, balance="500000.00",
+            is_active=True, currency_balances={"SYP": "500000.00", "USD": "50.00"},
+        )
+        destination = SimpleNamespace(
+            id="dst", type=CashboxType.accredited, balance="0.00",
+            is_active=True, currency_balances={},
+        )
+        treasury = SimpleNamespace(
+            id="treasury", type=CashboxType.treasury, balance="0.00",
+            is_active=True, currency_balances={},
+        )
+
+        with patch.object(transfers_service, "_get_locked_cashbox", side_effect=[source, destination]), \
+             patch.object(transfers_service, "_get_locked_treasury", return_value=treasury):
+            transfers_service._apply_transfer_posting(None, transfer)
+
+        # Only SYP changes; USD untouched
+        self.assertEqual(source.currency_balances.get("USD"), "50.00")
+        self.assertEqual(source.currency_balances.get("SYP"), "398750.00")   # 500000 - 101250
+        self.assertEqual(destination.currency_balances.get("SYP"), "100000.00")
+        self.assertEqual(treasury.currency_balances.get("SYP"), "1250.00")
 
 
 class ConfigTests(unittest.TestCase):

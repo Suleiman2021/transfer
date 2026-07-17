@@ -10,26 +10,53 @@ from app.features.transfers.models import TransferState, TransferType
 from app.features.users.models import UserRole
 
 
+class RemittanceCreateRequest(BaseModel):
+    from_cashbox_id: UUID
+    to_cashbox_id: UUID
+    amount: Decimal = Field(gt=Decimal("0"))
+
+    sender_name: str = Field(min_length=1, max_length=120)
+    sender_phone: str = Field(min_length=1, max_length=40)
+    sender_country: str = Field(min_length=1, max_length=80)
+    sender_city: str = Field(min_length=1, max_length=80)
+
+    receiver_name: str = Field(min_length=1, max_length=120)
+    receiver_phone: str = Field(min_length=1, max_length=40)
+    receiver_country: str = Field(min_length=1, max_length=80)
+    receiver_city: str = Field(min_length=1, max_length=80)
+
+    note: str | None = Field(default=None, max_length=500)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
+    source_currency: str = Field(default="SYP", min_length=3, max_length=4)
+
+    @field_validator("source_currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not (3 <= len(normalized) <= 4):
+            raise ValueError("currency code must be 3 or 4 characters")
+        return normalized
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def normalize_idempotency_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class TransferCreateRequest(BaseModel):
     from_cashbox_id: UUID
     to_cashbox_id: UUID
     amount: Decimal = Field(gt=Decimal("0"))
-    operation_type: TransferType = TransferType.network_transfer
+    operation_type: TransferType = TransferType.topup
 
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
-    source_currency: str = Field(default="SYP", min_length=3, max_length=3)
-    destination_currency: str = Field(default="SYP", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(default=Decimal("1"), gt=Decimal("0"))
+    source_currency: str = Field(default="SYP", min_length=3, max_length=4)
 
     note: str | None = Field(default=None, max_length=500)
-    customer_name: str | None = Field(default=None, max_length=120)
-    customer_phone: str | None = Field(default=None, max_length=40)
     commission_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
-    )
-    cashout_profit_percent: Decimal | None = Field(
         default=None,
         ge=Decimal("0"),
         le=Decimal("100"),
@@ -43,12 +70,12 @@ class TransferCreateRequest(BaseModel):
         normalized = value.strip()
         return normalized or None
 
-    @field_validator("source_currency", "destination_currency")
+    @field_validator("source_currency")
     @classmethod
     def normalize_currency(cls, value: str) -> str:
         normalized = value.strip().upper()
-        if len(normalized) != 3:
-            raise ValueError("currency must be 3 letters")
+        if not (3 <= len(normalized) <= 4):
+            raise ValueError("currency code must be 3 or 4 characters (e.g. SYP, USD, USDT)")
         return normalized
 
 
@@ -99,15 +126,22 @@ class TransferResponse(BaseModel):
     is_cross_country: bool
     agent_profit_percent: Decimal
     agent_profit_amount: Decimal
-    cashout_profit_percent: Decimal
-    cashout_profit_amount: Decimal
     net_amount: Decimal
-    customer_name: str | None
-    customer_phone: str | None
+
+    sender_name: str | None = None
+    sender_phone: str | None = None
+    sender_country: str | None = None
+    sender_city: str | None = None
+    receiver_name: str | None = None
+    receiver_phone: str | None = None
+    receiver_country: str | None = None
+    receiver_city: str | None = None
+    receiver_commission_percent: Decimal = Decimal("0")
+    receiver_commission_amount: Decimal = Decimal("0")
+    sender_commission_percent: Decimal = Decimal("0")
+    sender_commission_amount: Decimal = Decimal("0")
 
     source_currency: str
-    destination_currency: str
-    exchange_rate: Decimal
     snapshot_at: datetime
 
     risk_score: Decimal
@@ -131,7 +165,6 @@ class DailyTransferReportRow(BaseModel):
     total_amount: Decimal
     total_commission: Decimal
     total_agent_profit: Decimal
-    total_cashout_profit: Decimal
 
 
 class TransferStateLogResponse(BaseModel):

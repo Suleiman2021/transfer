@@ -24,46 +24,45 @@ class CommissionRuleUpsertRequest(BaseModel):
         ge=Decimal("0"),
         le=Decimal("100"),
     )
-    treasury_collection_from_accredited_fee_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
+    treasury_to_agent_internal_fee_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
     )
-    treasury_collection_from_agent_fee_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
+    treasury_to_agent_external_fee_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
     )
-    agent_topup_profit_internal_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
+    treasury_to_accredited_internal_fee_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
     )
-    agent_topup_profit_external_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
+    treasury_to_accredited_external_fee_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
     )
-    agent_topup_profit_percent: Decimal | None = Field(
-        default=None,
-        ge=Decimal("0"),
-        le=Decimal("100"),
+    remittance_treasury_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
+    )
+    remittance_sender_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
+    )
+    remittance_receiver_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("100")
     )
 
     @model_validator(mode="after")
     def validate_any_value_provided(self):
-        if (
-            self.fee_percent is None
-            and self.internal_fee_percent is None
-            and self.external_fee_percent is None
-            and self.treasury_to_accredited_fee_percent is None
-            and self.treasury_to_agent_fee_percent is None
-            and self.treasury_collection_from_accredited_fee_percent is None
-            and self.treasury_collection_from_agent_fee_percent is None
-            and self.agent_topup_profit_internal_percent is None
-            and self.agent_topup_profit_external_percent is None
-            and self.agent_topup_profit_percent is None
-        ):
+        values = [
+            self.fee_percent,
+            self.internal_fee_percent,
+            self.external_fee_percent,
+            self.treasury_to_accredited_fee_percent,
+            self.treasury_to_agent_fee_percent,
+            self.treasury_to_agent_internal_fee_percent,
+            self.treasury_to_agent_external_fee_percent,
+            self.treasury_to_accredited_internal_fee_percent,
+            self.treasury_to_accredited_external_fee_percent,
+            self.remittance_treasury_percent,
+            self.remittance_sender_percent,
+            self.remittance_receiver_percent,
+        ]
+        if all(v is None for v in values):
             raise ValueError("At least one commission value must be provided")
         return self
 
@@ -77,10 +76,12 @@ class CommissionRuleResponse(BaseModel):
     external_fee_percent: Decimal
     treasury_to_accredited_fee_percent: Decimal
     treasury_to_agent_fee_percent: Decimal
-    treasury_collection_from_accredited_fee_percent: Decimal
-    treasury_collection_from_agent_fee_percent: Decimal
-    agent_topup_profit_internal_percent: Decimal
-    agent_topup_profit_external_percent: Decimal
-    agent_topup_profit_percent: Decimal
+    treasury_to_agent_internal_fee_percent: Decimal
+    treasury_to_agent_external_fee_percent: Decimal
+    treasury_to_accredited_internal_fee_percent: Decimal
+    treasury_to_accredited_external_fee_percent: Decimal
+    remittance_treasury_percent: Decimal
+    remittance_sender_percent: Decimal
+    remittance_receiver_percent: Decimal
     is_active: bool
     updated_at: datetime | None

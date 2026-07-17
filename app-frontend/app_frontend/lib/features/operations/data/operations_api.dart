@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../../../core/entities/app_models.dart';
 import '../../../core/network/api_client.dart';
 
@@ -101,11 +103,10 @@ class OperationsApi {
     required String operationType,
     String? note,
     String? commissionPercent,
-    String? customerName,
-    String? customerPhone,
-    String? cashoutProfitPercent,
+    String sourceCurrency = 'SYP',
   }) async {
-    final idempotencyKey = 'tx-${DateTime.now().microsecondsSinceEpoch}';
+    final idempotencyKey =
+        'tx-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(0xFFFFFF)}';
 
     final body = <String, dynamic>{
       'from_cashbox_id': fromCashboxId,
@@ -114,24 +115,52 @@ class OperationsApi {
       'operation_type': operationType,
       'note': note,
       'idempotency_key': idempotencyKey,
-      'source_currency': 'SYP',
-      'destination_currency': 'SYP',
-      'exchange_rate': '1',
+      'source_currency': sourceCurrency,
     };
-    if ((customerName ?? '').trim().isNotEmpty) {
-      body['customer_name'] = customerName!.trim();
-    }
     if ((commissionPercent ?? '').trim().isNotEmpty) {
       body['commission_percent'] = commissionPercent!.trim();
     }
-    if ((customerPhone ?? '').trim().isNotEmpty) {
-      body['customer_phone'] = customerPhone!.trim();
-    }
-    if ((cashoutProfitPercent ?? '').trim().isNotEmpty) {
-      body['cashout_profit_percent'] = cashoutProfitPercent!.trim();
-    }
 
     final json = await ApiClient.postJson('/transfers/', body, token: token);
+
+    return TransferModel.fromJson(json);
+  }
+
+  Future<TransferModel> createRemittance({
+    required String token,
+    required String fromCashboxId,
+    required String toCashboxId,
+    required String amount,
+    required String senderName,
+    required String senderPhone,
+    required String senderCountry,
+    required String senderCity,
+    required String receiverName,
+    required String receiverPhone,
+    required String receiverCountry,
+    required String receiverCity,
+    String? note,
+    String sourceCurrency = 'SYP',
+  }) async {
+    final idempotencyKey =
+        'rem-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(0xFFFFFF)}';
+
+    final json = await ApiClient.postJson('/transfers/remittance', {
+      'from_cashbox_id': fromCashboxId,
+      'to_cashbox_id': toCashboxId,
+      'amount': amount,
+      'sender_name': senderName.trim(),
+      'sender_phone': senderPhone.trim(),
+      'sender_country': senderCountry.trim(),
+      'sender_city': senderCity.trim(),
+      'receiver_name': receiverName.trim(),
+      'receiver_phone': receiverPhone.trim(),
+      'receiver_country': receiverCountry.trim(),
+      'receiver_city': receiverCity.trim(),
+      'idempotency_key': idempotencyKey,
+      'source_currency': sourceCurrency,
+      if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+    }, token: token);
 
     return TransferModel.fromJson(json);
   }

@@ -24,10 +24,8 @@ List<CashboxModel> userCashboxes(
 }
 
 String inferOperationsType(AuthSession session, CashboxModel target) {
-  if (session.role == UserRole.agent) {
-    if (target.isTreasury) return 'agent_funding';
-    return 'topup';
-  }
-  if (target.isAccredited) return 'network_transfer';
-  return 'collection';
+  // The only operation initiated from the operations transfer tab is an agent
+  // topping up an accredited cashbox. Accredited users use customer remittances,
+  // and treasury → agent/accredited funding is admin-initiated.
+  return 'topup';
 }

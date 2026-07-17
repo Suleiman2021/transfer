@@ -57,6 +57,22 @@ class UserQrScreen extends StatelessWidget {
 
   Future<void> _shareQr(BuildContext context) async {
     try {
+      const padding = 80.0;
+      const labelHeight = 80.0;
+      const qrSize = 740.0;
+      const imgWidth = qrSize + padding * 2;
+      const imgHeight = qrSize + padding * 2 + labelHeight;
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+
+      // White background
+      canvas.drawRect(
+        const Rect.fromLTWH(0, 0, imgWidth, imgHeight),
+        Paint()..color = Colors.white,
+      );
+
+      // QR code centred with equal padding on all four sides
       final painter = QrPainter(
         data: _payload,
         version: QrVersions.auto,
@@ -70,11 +86,34 @@ class UserQrScreen extends StatelessWidget {
           color: Colors.black,
         ),
       );
-      final imageData = await painter.toImageData(
-        900,
-        format: ui.ImageByteFormat.png,
+      canvas.save();
+      canvas.translate(padding, padding);
+      painter.paint(canvas, const Size(qrSize, qrSize));
+      canvas.restore();
+
+      // Name label centred below the QR
+      final labelTop = padding + qrSize + 18.0;
+      final paragraphStyle = ui.ParagraphStyle(
+        textAlign: TextAlign.center,
+        maxLines: 2,
       );
+      final textStyle = ui.TextStyle(
+        color: const Color(0xFF111111),
+        fontSize: 32,
+        fontWeight: ui.FontWeight.w700,
+      );
+      final pb = ui.ParagraphBuilder(paragraphStyle)
+        ..pushStyle(textStyle)
+        ..addText('$fullName\n@$username');
+      final paragraph = pb.build()
+        ..layout(ui.ParagraphConstraints(width: imgWidth - padding * 2));
+      canvas.drawParagraph(paragraph, Offset(padding, labelTop));
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(imgWidth.toInt(), imgHeight.toInt());
+      final imageData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (imageData == null) throw StateError('QR image generation failed');
+
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/radical-user-$username-qr.png');
       await file.writeAsBytes(imageData.buffer.asUint8List());
@@ -142,23 +181,12 @@ class UserQrScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () => Clipboard.setData(
-                              ClipboardData(text: _payload),
-                            ),
-                            icon: const Icon(Icons.qr_code_rounded),
-                            label: const Text('نسخ QR'),
+                            onPressed: () => _shareQr(context),
+                            icon: const Icon(Icons.share_rounded),
+                            label: const Text('مشاركة QR'),
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () => _shareQr(context),
-                        icon: const Icon(Icons.share_rounded),
-                        label: const Text('مشاركة QR كصورة'),
-                      ),
                     ),
                   ],
                 ),

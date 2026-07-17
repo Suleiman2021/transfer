@@ -1,3 +1,4 @@
+import '../utils/input_utils.dart';
 import 'package:flutter/material.dart';
 
 class PasswordField extends StatefulWidget {
@@ -31,6 +32,8 @@ class _PasswordFieldState extends State<PasswordField> {
       validator: widget.validator,
       textInputAction: widget.textInputAction,
       onFieldSubmitted: widget.onSubmitted,
+      textDirection: TextDirection.ltr,
+      onTap: tapToMoveCursor(widget.controller),
       decoration: InputDecoration(
         labelText: widget.labelText,
         prefixIcon: const Icon(Icons.lock_rounded),

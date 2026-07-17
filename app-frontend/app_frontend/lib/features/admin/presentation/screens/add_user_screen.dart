@@ -1,4 +1,5 @@
 import '../../../../core/entities/app_models.dart';
+import '../../../../core/utils/input_utils.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
@@ -79,6 +80,8 @@ class _AddUserScreenState extends State<AddUserScreen> {
                     children: [
                       TextFormField(
                         controller: _username,
+                        textDirection: TextDirection.ltr,
+                        onTap: tapToMoveCursor(_username),
                         decoration: const InputDecoration(
                           labelText: 'اسم المستخدم',
                         ),
@@ -87,6 +90,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
                       const SizedBox(height: 10),
                       TextFormField(
                         controller: _fullName,
+                        onTap: tapToMoveCursor(_fullName),
                         decoration: const InputDecoration(
                           labelText: 'الاسم الكامل',
                         ),
@@ -118,6 +122,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: _city,
+                              onTap: tapToMoveCursor(_city),
                               decoration: const InputDecoration(
                                 labelText: 'المدينة',
                               ),
@@ -128,6 +133,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: _country,
+                              onTap: tapToMoveCursor(_country),
                               decoration: const InputDecoration(
                                 labelText: 'الدولة',
                               ),
@@ -140,10 +146,12 @@ class _AddUserScreenState extends State<AddUserScreen> {
                       TextFormField(
                         controller: _phone,
                         keyboardType: TextInputType.phone,
+                        onTap: tapToMoveCursor(_phone),
                         decoration: const InputDecoration(
                           labelText: 'رقم الهاتف',
                           prefixIcon: Icon(Icons.phone_rounded),
                         ),
+                        validator: AppValidators.phone,
                       ),
                       const SizedBox(height: 10),
                       PasswordField(

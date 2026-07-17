@@ -31,7 +31,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_credentials=settings.effective_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -58,7 +58,7 @@ def root():
             "Treasury is managed by the admin and can fund or collect from the network",
             "Accredited users can manage multiple cashboxes and transfer between accredited cashboxes",
             "Agents operate as intermediaries with their own cashboxes and commissions",
-            "Top-up and collection requests can wait for agent or admin approval",
+            "Top-up requests can wait for agent or admin approval",
             "Double-entry ledger posting is enabled for completed transfers",
         ],
     }

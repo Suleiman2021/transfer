@@ -18,6 +18,7 @@ from app.features.users.service import (
     activate_user_by_admin,
     create_user_by_admin,
     deactivate_user_by_admin,
+    get_user_by_code,
     list_users,
     reset_user_password_by_admin,
     update_user_by_admin,
@@ -34,6 +35,15 @@ def admin_create_user(
     current_admin: User = Depends(require_roles(UserRole.admin)),
 ):
     return create_user_by_admin(db, payload, current_admin)
+
+
+@router.get("/users/resolve-code", response_model=UserResponse)
+def admin_resolve_user_code(
+    code: str,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_roles(UserRole.admin)),
+):
+    return get_user_by_code(db, code)
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -144,11 +154,13 @@ def admin_upsert_commission(
         external_fee_percent=payload.external_fee_percent,
         treasury_to_accredited_fee_percent=payload.treasury_to_accredited_fee_percent,
         treasury_to_agent_fee_percent=payload.treasury_to_agent_fee_percent,
-        treasury_collection_from_accredited_fee_percent=payload.treasury_collection_from_accredited_fee_percent,
-        treasury_collection_from_agent_fee_percent=payload.treasury_collection_from_agent_fee_percent,
-        agent_topup_profit_internal_percent=payload.agent_topup_profit_internal_percent,
-        agent_topup_profit_external_percent=payload.agent_topup_profit_external_percent,
-        agent_topup_profit_percent=payload.agent_topup_profit_percent,
+        treasury_to_agent_internal_fee_percent=payload.treasury_to_agent_internal_fee_percent,
+        treasury_to_agent_external_fee_percent=payload.treasury_to_agent_external_fee_percent,
+        treasury_to_accredited_internal_fee_percent=payload.treasury_to_accredited_internal_fee_percent,
+        treasury_to_accredited_external_fee_percent=payload.treasury_to_accredited_external_fee_percent,
+        remittance_treasury_percent=payload.remittance_treasury_percent,
+        remittance_sender_percent=payload.remittance_sender_percent,
+        remittance_receiver_percent=payload.remittance_receiver_percent,
         legacy_fee_percent=payload.fee_percent,
     )
 

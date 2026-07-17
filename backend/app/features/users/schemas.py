@@ -45,3 +45,18 @@ class UserResponse(BaseModel):
     phone: str | None = None
     is_active: bool
     created_at: datetime
+
+
+class UserQrResolveResponse(BaseModel):
+    """Limited user info returned when resolving a QR code — excludes admin fields."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    full_name: str
+    role: UserRole
+    city: str
+    country: str
+    phone: str | None = None
+    is_active: bool
+    created_at: datetime

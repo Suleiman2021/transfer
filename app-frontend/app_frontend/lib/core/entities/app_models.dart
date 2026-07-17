@@ -1,7 +1,9 @@
-enum UserRole { admin, accredited, agent, unknown }
+enum UserRole { superAdmin, admin, accredited, agent, unknown }
 
 UserRole roleFromString(String? value) {
   switch (value) {
+    case 'super_admin':
+      return UserRole.superAdmin;
     case 'admin':
       return UserRole.admin;
     case 'accredited':
@@ -15,6 +17,8 @@ UserRole roleFromString(String? value) {
 
 String roleApiValue(UserRole role) {
   switch (role) {
+    case UserRole.superAdmin:
+      return 'super_admin';
     case UserRole.admin:
       return 'admin';
     case UserRole.accredited:
@@ -126,8 +130,8 @@ class CashboxModel {
     required this.type,
     required this.managerUserId,
     required this.managerName,
-    required this.balance,
     required this.isActive,
+    this.currencyBalances = const {},
   });
 
   final String id;
@@ -137,13 +141,26 @@ class CashboxModel {
   final String type;
   final String? managerUserId;
   final String? managerName;
-  final String balance;
   final bool isActive;
+  /// Per-currency balances: {"SYP": 500000.0, "USD": 200.0, ...}.
+  /// Each currency keeps its own independent balance; there is no conversion.
+  final Map<String, double> currencyBalances;
 
-  double get balanceValue => double.tryParse(balance) ?? 0;
+  /// Convenience accessor for the SYP balance (most screens default to SYP).
+  double get balanceValue => currencyBalances['SYP'] ?? 0;
   bool get isTreasury => type == 'treasury';
   bool get isAccredited => type == 'accredited';
   bool get isAgent => type == 'agent';
+
+  static Map<String, double> _parseCurrencyBalances(dynamic raw) {
+    if (raw == null || raw is! Map) return const {};
+    final result = <String, double>{};
+    for (final e in raw.entries) {
+      final v = double.tryParse(e.value.toString()) ?? 0;
+      if (v != 0) result[e.key.toString()] = v;
+    }
+    return result;
+  }
 
   factory CashboxModel.fromJson(Map<String, dynamic> json) {
     return CashboxModel(
@@ -154,8 +171,8 @@ class CashboxModel {
       type: (json['type'] as String?) ?? '-',
       managerUserId: json['manager_user_id']?.toString(),
       managerName: json['manager_name'] as String?,
-      balance: json['balance'].toString(),
       isActive: (json['is_active'] as bool?) ?? false,
+      currencyBalances: _parseCurrencyBalances(json['currency_balances']),
     );
   }
 }
@@ -167,10 +184,13 @@ class CommissionRuleModel {
     required this.externalFeePercent,
     required this.treasuryToAccreditedFeePercent,
     required this.treasuryToAgentFeePercent,
-    required this.treasuryCollectionFromAccreditedFeePercent,
-    required this.treasuryCollectionFromAgentFeePercent,
-    required this.agentTopupProfitInternalPercent,
-    required this.agentTopupProfitExternalPercent,
+    required this.treasuryToAgentInternalFeePercent,
+    required this.treasuryToAgentExternalFeePercent,
+    required this.treasuryToAccreditedInternalFeePercent,
+    required this.treasuryToAccreditedExternalFeePercent,
+    required this.remittanceTreasuryPercent,
+    required this.remittanceSenderPercent,
+    required this.remittanceReceiverPercent,
   });
 
   final UserRole role;
@@ -178,10 +198,13 @@ class CommissionRuleModel {
   final String externalFeePercent;
   final String treasuryToAccreditedFeePercent;
   final String treasuryToAgentFeePercent;
-  final String treasuryCollectionFromAccreditedFeePercent;
-  final String treasuryCollectionFromAgentFeePercent;
-  final String agentTopupProfitInternalPercent;
-  final String agentTopupProfitExternalPercent;
+  final String treasuryToAgentInternalFeePercent;
+  final String treasuryToAgentExternalFeePercent;
+  final String treasuryToAccreditedInternalFeePercent;
+  final String treasuryToAccreditedExternalFeePercent;
+  final String remittanceTreasuryPercent;
+  final String remittanceSenderPercent;
+  final String remittanceReceiverPercent;
 
   factory CommissionRuleModel.fromJson(Map<String, dynamic> json) {
     return CommissionRuleModel(
@@ -192,19 +215,20 @@ class CommissionRuleModel {
           json['treasury_to_accredited_fee_percent']?.toString() ?? '0',
       treasuryToAgentFeePercent:
           json['treasury_to_agent_fee_percent']?.toString() ?? '0',
-      treasuryCollectionFromAccreditedFeePercent:
-          json['treasury_collection_from_accredited_fee_percent']?.toString() ??
-          '0',
-      treasuryCollectionFromAgentFeePercent:
-          json['treasury_collection_from_agent_fee_percent']?.toString() ?? '0',
-      agentTopupProfitInternalPercent:
-          json['agent_topup_profit_internal_percent']?.toString() ??
-          json['agent_topup_profit_percent']?.toString() ??
-          '0',
-      agentTopupProfitExternalPercent:
-          json['agent_topup_profit_external_percent']?.toString() ??
-          json['agent_topup_profit_percent']?.toString() ??
-          '0',
+      treasuryToAgentInternalFeePercent:
+          json['treasury_to_agent_internal_fee_percent']?.toString() ?? '0',
+      treasuryToAgentExternalFeePercent:
+          json['treasury_to_agent_external_fee_percent']?.toString() ?? '0',
+      treasuryToAccreditedInternalFeePercent:
+          json['treasury_to_accredited_internal_fee_percent']?.toString() ?? '0',
+      treasuryToAccreditedExternalFeePercent:
+          json['treasury_to_accredited_external_fee_percent']?.toString() ?? '0',
+      remittanceTreasuryPercent:
+          json['remittance_treasury_percent']?.toString() ?? '0',
+      remittanceSenderPercent:
+          json['remittance_sender_percent']?.toString() ?? '0',
+      remittanceReceiverPercent:
+          json['remittance_receiver_percent']?.toString() ?? '0',
     );
   }
 }
@@ -224,19 +248,28 @@ class TransferModel {
     required this.commissionAmount,
     required this.agentProfitPercent,
     required this.agentProfitAmount,
-    required this.cashoutProfitPercent,
-    required this.cashoutProfitAmount,
     required this.isCrossCountry,
     required this.performedById,
     required this.createdAt,
     required this.note,
-    required this.customerName,
-    required this.customerPhone,
     required this.state,
     required this.reviewRequired,
     required this.approvalCodeRequired,
     required this.approvalCode,
     required this.riskScore,
+    this.sourceCurrency = 'SYP',
+    this.senderName,
+    this.senderPhone,
+    this.senderCountry,
+    this.senderCity,
+    this.receiverName,
+    this.receiverPhone,
+    this.receiverCountry,
+    this.receiverCity,
+    this.receiverCommissionPercent = '0',
+    this.receiverCommissionAmount = '0',
+    this.senderCommissionPercent = '0',
+    this.senderCommissionAmount = '0',
   });
 
   final String id;
@@ -252,19 +285,28 @@ class TransferModel {
   final String commissionAmount;
   final String agentProfitPercent;
   final String agentProfitAmount;
-  final String cashoutProfitPercent;
-  final String cashoutProfitAmount;
   final bool isCrossCountry;
   final String performedById;
   final String createdAt;
   final String? note;
-  final String? customerName;
-  final String? customerPhone;
   final String state;
   final bool reviewRequired;
   final bool approvalCodeRequired;
   final String? approvalCode;
   final String riskScore;
+  final String sourceCurrency;
+  final String? senderName;
+  final String? senderPhone;
+  final String? senderCountry;
+  final String? senderCity;
+  final String? receiverName;
+  final String? receiverPhone;
+  final String? receiverCountry;
+  final String? receiverCity;
+  final String receiverCommissionPercent;
+  final String receiverCommissionAmount;
+  final String senderCommissionPercent;
+  final String senderCommissionAmount;
 
   double get amountValue => double.tryParse(amount) ?? 0;
   double get commissionValue => double.tryParse(commissionAmount) ?? 0;
@@ -272,15 +314,12 @@ class TransferModel {
   double get agentProfitValue => double.tryParse(agentProfitAmount) ?? 0;
   double get agentProfitPercentValue =>
       double.tryParse(agentProfitPercent) ?? 0;
-  double get cashoutProfitValue => double.tryParse(cashoutProfitAmount) ?? 0;
-  double get cashoutProfitPercentValue =>
-      double.tryParse(cashoutProfitPercent) ?? 0;
   double get riskValue => double.tryParse(riskScore) ?? 0;
   String get fromLabel => fromCashboxName ?? fromCashboxId;
   String get toLabel {
-    if (operationType == 'customer_cashout' &&
-        (customerName ?? '').trim().isNotEmpty) {
-      return 'عميل: ${customerName!.trim()}';
+    if (operationType == 'remittance' &&
+        (receiverName ?? '').trim().isNotEmpty) {
+      return 'حوالة: ${receiverName!.trim()}';
     }
     return toCashboxName ?? toCashboxId;
   }
@@ -294,25 +333,38 @@ class TransferModel {
       toCashboxName: json['to_cashbox_name'] as String?,
       fromCashboxType: json['from_cashbox_type']?.toString(),
       toCashboxType: json['to_cashbox_type']?.toString(),
-      operationType: (json['operation_type'] as String?) ?? 'network_transfer',
+      operationType: (json['operation_type'] as String?) ?? 'topup',
       amount: json['amount'].toString(),
       commissionPercent: json['commission_percent']?.toString() ?? '0',
       commissionAmount: json['commission_amount'].toString(),
       agentProfitPercent: json['agent_profit_percent']?.toString() ?? '0',
       agentProfitAmount: json['agent_profit_amount']?.toString() ?? '0',
-      cashoutProfitPercent: json['cashout_profit_percent']?.toString() ?? '0',
-      cashoutProfitAmount: json['cashout_profit_amount']?.toString() ?? '0',
       isCrossCountry: (json['is_cross_country'] as bool?) ?? false,
       performedById: json['performed_by_id'].toString(),
       createdAt: (json['created_at'] as String?) ?? '',
       note: json['note'] as String?,
-      customerName: json['customer_name'] as String?,
-      customerPhone: json['customer_phone'] as String?,
       state: (json['state'] as String?) ?? 'completed',
       reviewRequired: (json['review_required'] as bool?) ?? false,
       approvalCodeRequired: (json['approval_code_required'] as bool?) ?? false,
       approvalCode: json['approval_code'] as String?,
       riskScore: json['risk_score']?.toString() ?? '0',
+      sourceCurrency: (json['source_currency'] as String?) ?? 'SYP',
+      senderName: json['sender_name'] as String?,
+      senderPhone: json['sender_phone'] as String?,
+      senderCountry: json['sender_country'] as String?,
+      senderCity: json['sender_city'] as String?,
+      receiverName: json['receiver_name'] as String?,
+      receiverPhone: json['receiver_phone'] as String?,
+      receiverCountry: json['receiver_country'] as String?,
+      receiverCity: json['receiver_city'] as String?,
+      receiverCommissionPercent:
+          json['receiver_commission_percent']?.toString() ?? '0',
+      receiverCommissionAmount:
+          json['receiver_commission_amount']?.toString() ?? '0',
+      senderCommissionPercent:
+          json['sender_commission_percent']?.toString() ?? '0',
+      senderCommissionAmount:
+          json['sender_commission_amount']?.toString() ?? '0',
     );
   }
 }
@@ -326,7 +378,6 @@ class DailyTransferReportRowModel {
     required this.totalAmount,
     required this.totalCommission,
     required this.totalAgentProfit,
-    required this.totalCashoutProfit,
   });
 
   final String date;
@@ -336,7 +387,6 @@ class DailyTransferReportRowModel {
   final double totalAmount;
   final double totalCommission;
   final double totalAgentProfit;
-  final double totalCashoutProfit;
 
   factory DailyTransferReportRowModel.fromJson(Map<String, dynamic> json) {
     double parseNum(dynamic value) => double.tryParse(value.toString()) ?? 0;
@@ -350,7 +400,6 @@ class DailyTransferReportRowModel {
       totalAmount: parseNum(json['total_amount']),
       totalCommission: parseNum(json['total_commission']),
       totalAgentProfit: parseNum(json['total_agent_profit']),
-      totalCashoutProfit: parseNum(json['total_cashout_profit']),
     );
   }
 }
@@ -358,7 +407,7 @@ class DailyTransferReportRowModel {
 class UserTransferReportSummaryModel {
   const UserTransferReportSummaryModel({
     required this.cashboxesCount,
-    required this.totalBalance,
+    required this.totalBalances,
     required this.transfersCount,
     required this.completedCount,
     required this.pendingCount,
@@ -366,13 +415,13 @@ class UserTransferReportSummaryModel {
     required this.totalAmount,
     required this.totalCommission,
     required this.totalAgentProfit,
-    required this.totalCashoutProfit,
     required this.fromDate,
     required this.toDate,
   });
 
   final int cashboxesCount;
-  final double totalBalance;
+  /// Per-currency balance totals across the user's cashboxes (no conversion).
+  final Map<String, double> totalBalances;
   final int transfersCount;
   final int completedCount;
   final int pendingCount;
@@ -380,9 +429,11 @@ class UserTransferReportSummaryModel {
   final double totalAmount;
   final double totalCommission;
   final double totalAgentProfit;
-  final double totalCashoutProfit;
   final String? fromDate;
   final String? toDate;
+
+  /// SYP total convenience accessor for screens that show a single figure.
+  double get totalBalanceSyp => totalBalances['SYP'] ?? 0;
 
   factory UserTransferReportSummaryModel.fromJson(Map<String, dynamic> json) {
     double parseNum(dynamic value) => double.tryParse(value.toString()) ?? 0;
@@ -393,9 +444,18 @@ class UserTransferReportSummaryModel {
       return text;
     }
 
+    Map<String, double> parseBalances(dynamic raw) {
+      if (raw is! Map) return const {};
+      final result = <String, double>{};
+      for (final e in raw.entries) {
+        result[e.key.toString()] = double.tryParse(e.value.toString()) ?? 0;
+      }
+      return result;
+    }
+
     return UserTransferReportSummaryModel(
       cashboxesCount: parseInt(json['cashboxes_count']),
-      totalBalance: parseNum(json['total_balance']),
+      totalBalances: parseBalances(json['total_balances']),
       transfersCount: parseInt(json['transfers_count']),
       completedCount: parseInt(json['completed_count']),
       pendingCount: parseInt(json['pending_count']),
@@ -403,7 +463,6 @@ class UserTransferReportSummaryModel {
       totalAmount: parseNum(json['total_amount']),
       totalCommission: parseNum(json['total_commission']),
       totalAgentProfit: parseNum(json['total_agent_profit']),
-      totalCashoutProfit: parseNum(json['total_cashout_profit']),
       fromDate: parseDate(json['from_date']),
       toDate: parseDate(json['to_date']),
     );
@@ -495,6 +554,7 @@ class TrialBalanceRowModel {
     required this.accountCode,
     required this.accountName,
     required this.accountType,
+    required this.currency,
     required this.debit,
     required this.credit,
     required this.balance,
@@ -504,6 +564,7 @@ class TrialBalanceRowModel {
   final String accountCode;
   final String accountName;
   final String accountType;
+  final String currency;
   final double debit;
   final double credit;
   final double balance;
@@ -516,6 +577,7 @@ class TrialBalanceRowModel {
       accountCode: (json['account_code'] as String?) ?? '-',
       accountName: (json['account_name'] as String?) ?? '-',
       accountType: (json['account_type'] as String?) ?? '-',
+      currency: (json['currency'] as String?) ?? 'SYP',
       debit: parseNum(json['debit']),
       credit: parseNum(json['credit']),
       balance: parseNum(json['balance']),
@@ -546,18 +608,12 @@ String transferStateLabelAr(String state) {
 
 String transferTypeLabelAr(String type) {
   switch (type) {
-    case 'network_transfer':
-      return 'تحويل بين المعتمدين';
     case 'topup':
       return 'تعبئة';
-    case 'collection':
-      return 'تحصيل';
     case 'agent_funding':
       return 'تمويل وكيل';
-    case 'agent_collection':
-      return 'تحصيل من وكيل';
-    case 'customer_cashout':
-      return '\u0635\u0631\u0641 \u0631\u0635\u064a\u062f \u0639\u0645\u064a\u0644';
+    case 'remittance':
+      return '\u062d\u0648\u0627\u0644\u0629 \u0639\u0645\u064a\u0644';
     default:
       return type;
   }
@@ -565,18 +621,12 @@ String transferTypeLabelAr(String type) {
 
 String transferTypeHintAr(String type) {
   switch (type) {
-    case 'network_transfer':
-      return 'تحويل مباشر بين صندوقين معتمدين.';
     case 'topup':
       return 'تعبئة صندوق معتمد من وكيل أو خزنة.';
-    case 'collection':
-      return 'تحصيل من صندوق معتمد إلى وكيل أو خزنة.';
     case 'agent_funding':
       return 'تمويل مباشر من الخزنة إلى صندوق وكيل.';
-    case 'agent_collection':
-      return 'إرجاع سيولة من الوكيل إلى الخزنة.';
-    case 'customer_cashout':
-      return '\u0635\u0631\u0641 \u0631\u0635\u064a\u062f \u0644\u0639\u0645\u064a\u0644 \u0645\u0639 \u062a\u062d\u062f\u064a\u062f \u0639\u0645\u0648\u0644\u0629 \u062e\u0627\u0635\u0629 \u0628\u0627\u0644\u0645\u0639\u062a\u0645\u062f.';
+    case 'remittance':
+      return '\u062d\u0648\u0627\u0644\u0629 \u0639\u0645\u064a\u0644 \u0645\u0646 \u0645\u0639\u062a\u0645\u062f \u0625\u0644\u0649 \u0645\u0639\u062a\u0645\u062f \u0622\u062e\u0631 \u0645\u0639 \u062a\u0642\u0633\u064a\u0645 \u0627\u0644\u0639\u0645\u0648\u0644\u0629.';
     default:
       return '';
   }
@@ -631,6 +681,8 @@ String cashboxTypeLabelAr(String type) {
 
 String roleLabelAr(UserRole role) {
   switch (role) {
+    case UserRole.superAdmin:
+      return 'مدير رئيسي';
     case UserRole.admin:
       return 'مدير';
     case UserRole.accredited:

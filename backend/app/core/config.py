@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     COMPANY_NAME: str = "Cashbox Transfer Network"
 
     BOOTSTRAP_ADMIN_USERNAME: str = "admin"
-    BOOTSTRAP_ADMIN_PASSWORD: str = "Admin@12345"
+    # No insecure default: the bootstrap admin password must be provided via the
+    # environment (.env). An empty value disables seeding a default admin.
+    BOOTSTRAP_ADMIN_PASSWORD: str = ""
     BOOTSTRAP_ADMIN_FULL_NAME: str = "System Administrator"
     BOOTSTRAP_ADMIN_CITY: str = "damascus"
     BOOTSTRAP_ADMIN_COUNTRY: str = "سوريا"
@@ -38,6 +40,14 @@ class Settings(BaseSettings):
             for origin in self.CORS_ALLOW_ORIGINS.split(",")
             if origin.strip()
         ] or ["*"]
+
+    @property
+    def effective_cors_allow_credentials(self) -> bool:
+        # The CORS spec forbids credentials with a wildcard origin.
+        # Browsers reject such responses, so disable credentials silently.
+        if "*" in self.cors_allow_origins:
+            return False
+        return self.CORS_ALLOW_CREDENTIALS
 
 
 @lru_cache

@@ -7,7 +7,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.features.cashboxes.models import Cashbox
-from app.features.transfers.models import Transfer, TransferState, TransferType
+from app.features.transfers.models import Transfer, TransferState
 from app.features.users.models import User
 
 
@@ -76,13 +76,24 @@ def get_user_report(
         .all()
     )
     cashbox_ids = [cashbox.id for cashbox in cashboxes]
-    total_balance = _q_money(sum((Decimal(cashbox.balance) for cashbox in cashboxes), Decimal("0")))
+    total_balances: dict[str, Decimal] = {}
+    for cashbox in cashboxes:
+        for currency, value in (cashbox.currency_balances or {}).items():
+            total_balances[currency] = _q_money(
+                total_balances.get(currency, Decimal("0")) + Decimal(str(value))
+            )
 
     scoped = _build_user_transfers_query(db, user_id=user.id, cashbox_ids=cashbox_ids)
     scoped = _apply_date_filters(scoped, from_date=from_date, to_date=to_date)
 
     safe_limit = max(1, min(limit, 300))
     transfers = scoped.order_by(Transfer.created_at.desc()).limit(safe_limit).all()
+
+    # Only count profits from transfers where this user's role was the commission earner.
+    _profit_condition = (
+        (Transfer.state == TransferState.completed)
+        & (Transfer.commission_role == user.role)
+    )
 
     totals = scoped.with_entities(
         func.count(Transfer.id).label("transfers_count"),
@@ -113,28 +124,12 @@ def get_user_report(
         func.coalesce(
             func.sum(
                 case(
-                    (
-                        Transfer.state == TransferState.completed,
-                        Transfer.agent_profit_amount,
-                    ),
+                    (_profit_condition, Transfer.agent_profit_amount),
                     else_=0,
                 )
             ),
             0,
         ).label("total_agent_profit"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (Transfer.state == TransferState.completed)
-                        & (Transfer.operation_type == TransferType.customer_cashout),
-                        Transfer.cashout_profit_amount,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("total_cashout_profit"),
     ).first()
 
     day_key = func.date(Transfer.created_at)
@@ -169,28 +164,12 @@ def get_user_report(
             func.coalesce(
                 func.sum(
                     case(
-                        (
-                            Transfer.state == TransferState.completed,
-                            Transfer.agent_profit_amount,
-                        ),
+                        (_profit_condition, Transfer.agent_profit_amount),
                         else_=0,
                     )
                 ),
                 0,
             ).label("total_agent_profit"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            (Transfer.state == TransferState.completed)
-                            & (Transfer.operation_type == TransferType.customer_cashout),
-                            Transfer.cashout_profit_amount,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("total_cashout_profit"),
         )
         .group_by(day_key)
         .order_by(day_key.desc())
@@ -210,7 +189,6 @@ def get_user_report(
                 "total_amount": _q_money(Decimal(row.total_amount or 0)),
                 "total_commission": _q_money(Decimal(row.total_commission or 0)),
                 "total_agent_profit": _q_money(Decimal(row.total_agent_profit or 0)),
-                "total_cashout_profit": _q_money(Decimal(row.total_cashout_profit or 0)),
             }
         )
 
@@ -221,7 +199,7 @@ def get_user_report(
         "daily_rows": daily_rows,
         "summary": {
             "cashboxes_count": len(cashboxes),
-            "total_balance": total_balance,
+            "total_balances": total_balances,
             "transfers_count": int(totals.transfers_count or 0),
             "completed_count": int(totals.completed_count or 0),
             "pending_count": int(totals.pending_count or 0),
@@ -229,7 +207,6 @@ def get_user_report(
             "total_amount": _q_money(Decimal(totals.total_amount or 0)),
             "total_commission": _q_money(Decimal(totals.total_commission or 0)),
             "total_agent_profit": _q_money(Decimal(totals.total_agent_profit or 0)),
-            "total_cashout_profit": _q_money(Decimal(totals.total_cashout_profit or 0)),
             "from_date": from_date,
             "to_date": to_date,
         },

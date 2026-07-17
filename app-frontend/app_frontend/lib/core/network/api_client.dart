@@ -47,6 +47,14 @@ class ApiClient {
     return normalized;
   }
 
+  static Map<String, String> _headers({String? token}) => {
+        'Content-Type': 'application/json',
+        // Required for ngrok free tier — without this header every request
+        // receives an HTML interstitial page instead of JSON.
+        'ngrok-skip-browser-warning': 'true',
+        if (token != null) 'Authorization': 'Bearer $token',
+      };
+
   static Future<Map<String, dynamic>> postJson(
     String path,
     Map<String, dynamic> body, {
@@ -57,10 +65,7 @@ class ApiClient {
       return http
           .post(
             await _buildUri(path),
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
+            headers: _headers(token: token),
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 20));
@@ -79,10 +84,7 @@ class ApiClient {
       return http
           .patch(
             await _buildUri(path),
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
+            headers: _headers(token: token),
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 20));
@@ -98,10 +100,7 @@ class ApiClient {
   }) async {
     final response = await _send(() async {
       return http
-          .get(
-            await _buildUri(path),
-            headers: {if (token != null) 'Authorization': 'Bearer $token'},
-          )
+          .get(await _buildUri(path), headers: _headers(token: token))
           .timeout(const Duration(seconds: 20));
     }, trackActivity: trackActivity);
 
@@ -125,9 +124,25 @@ class ApiClient {
   }) async {
     final response = await _send(() async {
       return http
-          .get(
+          .get(await _buildUri(path), headers: _headers(token: token))
+          .timeout(const Duration(seconds: 20));
+    }, trackActivity: trackActivity);
+
+    return _decodeResponse(response);
+  }
+
+  static Future<Map<String, dynamic>> putJson(
+    String path,
+    Map<String, dynamic> body, {
+    String? token,
+    bool trackActivity = true,
+  }) async {
+    final response = await _send(() async {
+      return http
+          .put(
             await _buildUri(path),
-            headers: {if (token != null) 'Authorization': 'Bearer $token'},
+            headers: _headers(token: token),
+            body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 20));
     }, trackActivity: trackActivity);
@@ -142,10 +157,7 @@ class ApiClient {
   }) async {
     final response = await _send(() async {
       return http
-          .delete(
-            await _buildUri(path),
-            headers: {if (token != null) 'Authorization': 'Bearer $token'},
-          )
+          .delete(await _buildUri(path), headers: _headers(token: token))
           .timeout(const Duration(seconds: 20));
     }, trackActivity: trackActivity);
 
@@ -194,6 +206,10 @@ class ApiClient {
   static Map<String, dynamic> _decodeResponse(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final parsed = _tryDecodeJson(response);
+      // Treat an empty body (204-style) as an empty success object.
+      if (parsed == null && response.body.trim().isEmpty) {
+        return const {};
+      }
       if (parsed is Map<String, dynamic>) {
         return parsed;
       }
@@ -265,6 +281,7 @@ class ApiClient {
           'انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجددًا.',
       'Invalid token payload':
           'جلسة الدخول غير صالحة. يرجى تسجيل الدخول مجددًا.',
+      'User not found': 'لم يتم العثور على المستخدم.',
       'Cashbox not found': 'الصندوق غير موجود.',
       'Both cashboxes must be active': 'يجب أن يكون الصندوقان مفعّلين.',
       'Cashboxes involved in transfer must be active':
@@ -287,12 +304,6 @@ class ApiClient {
       'Cannot cancel transfer because treasury balance is not enough':
           'لا يمكن إلغاء العملية لأن رصيد الخزنة غير كافٍ لعكس العمولة.',
       'Unsupported transfer type': 'نوع العملية غير مدعوم.',
-      'Customer name and phone are required for customer cashout':
-          'اسم العميل ورقم الهاتف مطلوبان لعملية صرف العميل.',
-      'Customer cashout must start from one of your accredited cashboxes':
-          'عملية صرف العميل يجب أن تبدأ من أحد صناديقك المعتمدة.',
-      'Customer cashout must use the same accredited cashbox as destination':
-          'في صرف العميل يجب أن تكون الوجهة نفس صندوق المعتمد.',
       'You are not allowed to perform this action':
           'ليست لديك صلاحية لتنفيذ هذا الإجراء.',
       'You are not allowed to review this request':
@@ -303,12 +314,8 @@ class ApiClient {
           'التحويل بين المعتمدين يجب أن يكون بين صناديق معتمدة فقط.',
       'Top-up must move from agent or treasury to an accredited cashbox':
           'التعبئة يجب أن تكون من الوكيل أو الخزنة إلى صندوق معتمد.',
-      'Collection must move from accredited cashbox to agent or treasury':
-          'التحصيل يجب أن يكون من صندوق معتمد إلى وكيل أو خزنة.',
       'Agent funding must move from treasury to an agent cashbox':
           'تمويل الوكيل يجب أن يكون من الخزنة إلى صندوق وكيل.',
-      'Agent collection must move from an agent cashbox to treasury':
-          'تحصيل الوكيل يجب أن يكون من صندوق الوكيل إلى الخزنة.',
       'Agent cannot execute this direct transfer route':
           'هذا المسار غير مسموح للوكيل.',
       'Top-up request must target one of your accredited cashboxes':

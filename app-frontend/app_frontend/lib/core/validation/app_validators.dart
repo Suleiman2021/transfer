@@ -50,4 +50,27 @@ class AppValidators {
     }
     return null;
   }
+
+  // Accepted formats (spaces/dashes ignored):
+  //   09XXXXXXXX          → Syrian local (10 digits, starts with 09)
+  //   +963 9XXXXXXXX      → Syrian international with +
+  //   00963 9XXXXXXXX     → Syrian international with 00
+  //   +[1-9]XX…           → Other international (7-15 digits after +/00)
+  static String? phone(String? value) {
+    final v = value?.trim() ?? '';
+    if (v.isEmpty) return 'رقم الهاتف مطلوب';
+
+    final digits = v.replaceAll(RegExp(r'[\s\-()]'), '');
+
+    // Syrian local mobile: 09XXXXXXXX (exactly 10 digits, starts with 09)
+    if (RegExp(r'^09\d{8}$').hasMatch(digits)) return null;
+
+    // Syrian international: +9639XXXXXXXX or 009639XXXXXXXX
+    if (RegExp(r'^(\+963|00963)9\d{8}$').hasMatch(digits)) return null;
+
+    // Generic international: starts with + or 00 followed by 7–14 digits
+    if (RegExp(r'^(\+|00)[1-9]\d{6,13}$').hasMatch(digits)) return null;
+
+    return 'أدخل رقم موبايل صحيح\nمثال: 09XXXXXXXX أو +963 9XXXXXXXX';
+  }
 }

@@ -1,5 +1,6 @@
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/input_utils.dart';
 import '../../../../core/widgets/app_empty_state.dart';
 import '../../../../core/widgets/app_section_card.dart';
 import 'package:flutter/material.dart';
@@ -8,12 +9,14 @@ class AdminUsersTab extends StatefulWidget {
   const AdminUsersTab({
     super.key,
     required this.users,
+    required this.currentRole,
     required this.onOpenReport,
     required this.onToggleActive,
     required this.onOpenQr,
   });
 
   final List<AppUser> users;
+  final UserRole currentRole;
   final ValueChanged<AppUser> onOpenReport;
   final ValueChanged<AppUser> onToggleActive;
   final ValueChanged<AppUser> onOpenQr;
@@ -53,6 +56,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
             children: [
               TextField(
                 controller: _search,
+                onTap: tapToMoveCursor(_search),
                 decoration: const InputDecoration(
                   labelText: 'بحث باسم المستخدم أو الاسم الكامل',
                   prefixIcon: Icon(Icons.search_rounded),
@@ -70,6 +74,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                     onSelected: (_) => setState(() => _role = null),
                   ),
                   for (final role in [
+                    UserRole.superAdmin,
                     UserRole.admin,
                     UserRole.agent,
                     UserRole.accredited,
@@ -100,6 +105,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _UserCard(
                             user: user,
+                            currentRole: widget.currentRole,
                             onOpenReport: () => widget.onOpenReport(user),
                             onToggle: () => widget.onToggleActive(user),
                             onQr: () => widget.onOpenQr(user),
@@ -117,15 +123,25 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
 class _UserCard extends StatelessWidget {
   const _UserCard({
     required this.user,
+    required this.currentRole,
     required this.onOpenReport,
     required this.onToggle,
     required this.onQr,
   });
 
   final AppUser user;
+  final UserRole currentRole;
   final VoidCallback onOpenReport;
   final VoidCallback onToggle;
   final VoidCallback onQr;
+
+  bool get _canToggle {
+    if (user.role == UserRole.superAdmin) return false;
+    if (user.role == UserRole.admin) {
+      return currentRole == UserRole.superAdmin;
+    }
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -167,20 +183,23 @@ class _UserCard extends StatelessWidget {
                 icon: const Icon(Icons.badge_rounded),
                 label: const Text('تفاصيل'),
               ),
-              OutlinedButton.icon(
-                onPressed: onQr,
-                icon: const Icon(Icons.qr_code_2_rounded),
-                label: const Text('QR'),
-              ),
-              OutlinedButton.icon(
-                onPressed: user.role == UserRole.admin ? null : onToggle,
-                icon: Icon(
-                  user.isActive
-                      ? Icons.person_off_rounded
-                      : Icons.verified_rounded,
+              if (user.role != UserRole.superAdmin &&
+                  user.role != UserRole.admin)
+                OutlinedButton.icon(
+                  onPressed: onQr,
+                  icon: const Icon(Icons.qr_code_2_rounded),
+                  label: const Text('QR'),
                 ),
-                label: Text(user.isActive ? 'إيقاف' : 'تفعيل'),
-              ),
+              if (user.role != UserRole.superAdmin)
+                OutlinedButton.icon(
+                  onPressed: _canToggle ? onToggle : null,
+                  icon: Icon(
+                    user.isActive
+                        ? Icons.person_off_rounded
+                        : Icons.verified_rounded,
+                  ),
+                  label: Text(user.isActive ? 'إيقاف' : 'تفعيل'),
+                ),
             ],
           ),
         ],

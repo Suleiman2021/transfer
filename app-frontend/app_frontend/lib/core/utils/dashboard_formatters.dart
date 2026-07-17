@@ -14,3 +14,13 @@ String dateText(DateTime? value) {
   final d = value.day.toString().padLeft(2, '0');
   return '$y-$m-$d';
 }
+
+/// Formats a raw ISO timestamp string into a compact, readable "MM-DD · HH:MM"
+/// (local time) for list rows. Falls back to the raw text if it can't parse.
+String shortDateTimeText(String raw) {
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  final local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.month)}-${two(local.day)} · ${two(local.hour)}:${two(local.minute)}';
+}

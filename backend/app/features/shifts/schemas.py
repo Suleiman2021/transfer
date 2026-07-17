@@ -2,14 +2,23 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.features.shifts.models import ShiftStatus
 
 
 class ShiftOpenRequest(BaseModel):
     cashbox_id: UUID
+    currency: str = Field(default="SYP", min_length=3, max_length=4)
     opening_note: str | None = Field(default=None, max_length=300)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not (3 <= len(normalized) <= 4):
+            raise ValueError("currency code must be 3 or 4 characters")
+        return normalized
 
 
 class ShiftCloseRequest(BaseModel):
@@ -27,6 +36,7 @@ class CashboxShiftResponse(BaseModel):
     opened_by_id: UUID
     closed_by_id: UUID | None
     status: ShiftStatus
+    currency: str
 
     opening_balance: Decimal
     expected_closing_balance: Decimal | None

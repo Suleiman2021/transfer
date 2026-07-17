@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../../../core/entities/app_models.dart';
 import '../../../core/network/api_client.dart';
 
@@ -192,7 +194,7 @@ class AdminApi {
     required String code,
   }) async {
     final json = await ApiClient.getJson(
-      '/auth/users/resolve-code?code=${Uri.encodeQueryComponent(code.trim())}',
+      '/admin/users/resolve-code?code=${Uri.encodeQueryComponent(code.trim())}',
       token: token,
     );
     return AppUser.fromJson(json);
@@ -217,37 +219,39 @@ class AdminApi {
     required UserRole role,
     required String internalFeePercent,
     required String externalFeePercent,
-    required String agentTopupProfitInternalPercent,
-    required String agentTopupProfitExternalPercent,
     String? treasuryToAccreditedFeePercent,
     String? treasuryToAgentFeePercent,
-    String? treasuryCollectionFromAccreditedFeePercent,
-    String? treasuryCollectionFromAgentFeePercent,
+    String? treasuryToAgentInternalFeePercent,
+    String? treasuryToAgentExternalFeePercent,
+    String? treasuryToAccreditedInternalFeePercent,
+    String? treasuryToAccreditedExternalFeePercent,
+    String? remittanceTreasuryPercent,
+    String? remittanceSenderPercent,
+    String? remittanceReceiverPercent,
   }) async {
     final body = <String, dynamic>{
       'role': roleApiValue(role),
       'internal_fee_percent': internalFeePercent.trim(),
       'external_fee_percent': externalFeePercent.trim(),
-      'agent_topup_profit_internal_percent': agentTopupProfitInternalPercent
-          .trim(),
-      'agent_topup_profit_external_percent': agentTopupProfitExternalPercent
-          .trim(),
     };
-    if ((treasuryToAccreditedFeePercent ?? '').trim().isNotEmpty) {
-      body['treasury_to_accredited_fee_percent'] =
-          treasuryToAccreditedFeePercent!.trim();
+    void addOpt(String key, String? val) {
+      if ((val ?? '').trim().isNotEmpty) body[key] = val!.trim();
     }
-    if ((treasuryToAgentFeePercent ?? '').trim().isNotEmpty) {
-      body['treasury_to_agent_fee_percent'] = treasuryToAgentFeePercent!.trim();
-    }
-    if ((treasuryCollectionFromAccreditedFeePercent ?? '').trim().isNotEmpty) {
-      body['treasury_collection_from_accredited_fee_percent'] =
-          treasuryCollectionFromAccreditedFeePercent!.trim();
-    }
-    if ((treasuryCollectionFromAgentFeePercent ?? '').trim().isNotEmpty) {
-      body['treasury_collection_from_agent_fee_percent'] =
-          treasuryCollectionFromAgentFeePercent!.trim();
-    }
+
+    addOpt('treasury_to_accredited_fee_percent', treasuryToAccreditedFeePercent);
+    addOpt('treasury_to_agent_fee_percent', treasuryToAgentFeePercent);
+    addOpt('treasury_to_agent_internal_fee_percent',
+        treasuryToAgentInternalFeePercent);
+    addOpt('treasury_to_agent_external_fee_percent',
+        treasuryToAgentExternalFeePercent);
+    addOpt('treasury_to_accredited_internal_fee_percent',
+        treasuryToAccreditedInternalFeePercent);
+    addOpt('treasury_to_accredited_external_fee_percent',
+        treasuryToAccreditedExternalFeePercent);
+    addOpt('remittance_treasury_percent', remittanceTreasuryPercent);
+    addOpt('remittance_sender_percent', remittanceSenderPercent);
+    addOpt('remittance_receiver_percent', remittanceReceiverPercent);
+
     final json = await ApiClient.postJson(
       '/admin/commissions',
       body,
@@ -324,12 +328,11 @@ class AdminApi {
     required String operationType,
     String? note,
     String? commissionPercent,
-    String? customerName,
-    String? customerPhone,
-    String? cashoutProfitPercent,
+    String sourceCurrency = 'SYP',
     bool trackActivity = true,
   }) async {
-    final idempotencyKey = 'tx-${DateTime.now().microsecondsSinceEpoch}';
+    final idempotencyKey =
+        'tx-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(0xFFFFFF)}';
 
     final body = <String, dynamic>{
       'from_cashbox_id': fromCashboxId,
@@ -338,21 +341,10 @@ class AdminApi {
       'operation_type': operationType,
       'note': note,
       'idempotency_key': idempotencyKey,
-      'source_currency': 'SYP',
-      'destination_currency': 'SYP',
-      'exchange_rate': '1',
+      'source_currency': sourceCurrency,
     };
-    if ((customerName ?? '').trim().isNotEmpty) {
-      body['customer_name'] = customerName!.trim();
-    }
     if ((commissionPercent ?? '').trim().isNotEmpty) {
       body['commission_percent'] = commissionPercent!.trim();
-    }
-    if ((customerPhone ?? '').trim().isNotEmpty) {
-      body['customer_phone'] = customerPhone!.trim();
-    }
-    if ((cashoutProfitPercent ?? '').trim().isNotEmpty) {
-      body['cashout_profit_percent'] = cashoutProfitPercent!.trim();
     }
 
     final json = await ApiClient.postJson(

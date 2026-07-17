@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -5,19 +6,20 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 from app.features.cashboxes.models import Cashbox, CashboxType
 from app.features.commissions.service import (
-    get_commission_values,
-    get_treasury_collection_commission_percent,
+    get_remittance_commission_percents,
     get_treasury_funding_commission_percent,
 )
 from app.features.ledger.service import (
     LedgerLineInput,
     create_ledger_entry,
-    ensure_customer_cashout_clearing_account,
     ensure_cashbox_ledger_account,
     ensure_default_ledger_accounts,
     post_transfer_ledger_entry,
@@ -25,27 +27,22 @@ from app.features.ledger.service import (
 from app.features.risk.service import create_risk_alerts, evaluate_transfer_risk, resolve_transfer_alerts
 from app.features.transfers.models import Transfer, TransferState, TransferStateLog, TransferType
 from app.features.transfers.schemas import (
+    RemittanceCreateRequest,
     TransferCancelRequest,
     TransferCreateRequest,
     TransferReviewAction,
     TransferReviewRequest,
 )
-from app.features.users.models import User, UserRole
+from app.features.users.models import User, UserRole, is_admin_role
 
 
 MONEY_QUANT = Decimal("0.01")
-RATE_QUANT = Decimal("0.000001")
 APPROVAL_CODE_LENGTH = 6
 
 
 
 def _q_money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
-
-
-
-def _q_rate(value: Decimal) -> Decimal:
-    return Decimal(value).quantize(RATE_QUANT, rounding=ROUND_HALF_UP)
 
 
 
@@ -116,9 +113,37 @@ def _clear_transfer_approval_code(transfer: Transfer) -> None:
     transfer._approval_code = None
 
 
+def _update_cashbox_currency_balance(
+    cashbox: Cashbox, currency: str, delta: Decimal
+) -> None:
+    balances: dict = dict(cashbox.currency_balances or {})
+    current = Decimal(str(balances.get(currency, "0")))
+    updated = _q_money(current + delta)
+    if updated == Decimal("0"):
+        balances.pop(currency, None)
+    else:
+        balances[currency] = str(updated)
+    cashbox.currency_balances = balances
+
+
 def _get_locked_cashbox(db: Session, cashbox_id: UUID) -> Cashbox | None:
     stmt = select(Cashbox).where(Cashbox.id == cashbox_id).with_for_update()
     return db.execute(stmt).scalar_one_or_none()
+
+
+def _lock_cashboxes_sorted(
+    db: Session, cashbox_ids: "list[UUID] | set[UUID]"
+) -> dict[UUID, "Cashbox | None"]:
+    """Acquire row locks on the given cashboxes in a deterministic UUID order.
+
+    Locking in a single global order (across every entry point that touches
+    cashboxes) prevents deadlocks between concurrent transfers that involve the
+    same cashboxes in different directions.
+    """
+    locked: dict[UUID, "Cashbox | None"] = {}
+    for cid in sorted({cid for cid in cashbox_ids if cid is not None}, key=str):
+        locked[cid] = _get_locked_cashbox(db, cid)
+    return locked
 
 
 
@@ -130,6 +155,39 @@ def _get_locked_treasury(db: Session) -> Cashbox | None:
     )
     return db.execute(stmt).scalar_one_or_none()
 
+
+
+def _commit_or_return_existing_transfer(
+    db: Session,
+    transfer: Transfer,
+    *,
+    performed_by_id: UUID,
+    idempotency_key: str | None,
+) -> Transfer:
+    """Commit the new transfer, resolving an idempotency-key race gracefully.
+
+    Two concurrent requests with the same idempotency key both pass the pre-insert
+    lookup; the loser hits the unique constraint. Instead of surfacing a 500, return
+    the transfer that actually won the race.
+    """
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key:
+            existing = (
+                db.query(Transfer)
+                .filter(
+                    Transfer.performed_by_id == performed_by_id,
+                    Transfer.idempotency_key == idempotency_key,
+                )
+                .first()
+            )
+            if existing:
+                return existing
+        raise
+    db.refresh(transfer)
+    return transfer
 
 
 def _append_state_log(
@@ -164,7 +222,7 @@ def _managed_cashbox_ids(user: User, *cashbox_types: CashboxType) -> set[UUID]:
 
 
 def _is_transfer_visible_to_user(transfer: Transfer, user: User) -> bool:
-    if user.role == UserRole.admin:
+    if is_admin_role(user.role):
         return True
 
     visible_ids = _managed_cashbox_ids(user)
@@ -181,27 +239,11 @@ def _is_transfer_visible_to_user(transfer: Transfer, user: User) -> bool:
 
 
 def _validate_operation_shape(source: Cashbox, destination: Cashbox, operation_type: TransferType) -> None:
-    if operation_type == TransferType.network_transfer:
-        if source.type != CashboxType.accredited or destination.type != CashboxType.accredited:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Network transfers must move between accredited cashboxes",
-            )
-        return
-
     if operation_type == TransferType.topup:
         if destination.type != CashboxType.accredited or source.type not in {CashboxType.agent, CashboxType.treasury}:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Top-up must move from agent or treasury to an accredited cashbox",
-            )
-        return
-
-    if operation_type == TransferType.collection:
-        if source.type != CashboxType.accredited or destination.type not in {CashboxType.agent, CashboxType.treasury}:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Collection must move from accredited cashbox to agent or treasury",
             )
         return
 
@@ -213,24 +255,16 @@ def _validate_operation_shape(source: Cashbox, destination: Cashbox, operation_t
             )
         return
 
-    if operation_type == TransferType.agent_collection:
-        if source.type != CashboxType.agent or destination.type != CashboxType.treasury:
+    if operation_type == TransferType.remittance:
+        if source.type != CashboxType.accredited or destination.type != CashboxType.accredited:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Agent collection must move from an agent cashbox to treasury",
+                detail="Remittances must move between accredited cashboxes",
             )
-        return
-
-    if operation_type == TransferType.customer_cashout:
-        if source.type != CashboxType.accredited:
+        if source.id == destination.id:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Customer cashout must start from an accredited cashbox",
-            )
-        if destination.id != source.id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Customer cashout destination must be the same accredited cashbox",
+                detail="Cannot create a remittance to your own cashbox",
             )
         return
 
@@ -241,7 +275,7 @@ def _validate_operation_shape(source: Cashbox, destination: Cashbox, operation_t
 def _validate_transfer_scope(source: Cashbox, destination: Cashbox, performer: User, operation_type: TransferType) -> None:
     _validate_operation_shape(source, destination, operation_type)
 
-    if performer.role == UserRole.admin:
+    if is_admin_role(performer.role):
         return
 
     if performer.role == UserRole.agent:
@@ -252,97 +286,35 @@ def _validate_transfer_scope(source: Cashbox, destination: Cashbox, performer: U
                 detail="Agent user does not manage an active agent cashbox",
             )
 
-        if operation_type in {
-            TransferType.network_transfer,
-            TransferType.collection,
-            TransferType.agent_collection,
-            TransferType.customer_cashout,
-        }:
+        # Agents only push top-ups from their own agent cashbox to an accredited cashbox.
+        # Treasury-to-agent funding (agent_funding) is admin-initiated only.
+        if operation_type != TransferType.topup:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Agent cannot execute this direct transfer route",
+                detail="Agent can only top up accredited cashboxes",
             )
-
-        if operation_type == TransferType.agent_funding:
-            if source.type != CashboxType.treasury:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Agent balance request must be funded by treasury cashbox",
-                )
-            if destination.id not in my_agent_cashboxes:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Agent balance request must target your own agent cashbox",
-                )
-            return
-
-        if source.type == CashboxType.agent and source.id in my_agent_cashboxes:
-            return
-        if destination.type == CashboxType.agent and destination.id in my_agent_cashboxes:
-            return
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Agent can only operate through their own agent cashbox",
-        )
-
-    my_accredited_cashboxes = _managed_cashbox_ids(performer, CashboxType.accredited)
-    if not my_accredited_cashboxes:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Accredited user does not manage an active accredited cashbox",
-        )
-
-    if operation_type in {TransferType.agent_funding, TransferType.agent_collection}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin can move balances directly between treasury and agent cashboxes",
-        )
-
-    if operation_type == TransferType.network_transfer:
-        if source.id not in my_accredited_cashboxes:
+        if source.type != CashboxType.agent or source.id not in my_agent_cashboxes:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Accredited users can transfer only from their own accredited cashboxes",
+                detail="Top-up must originate from your own agent cashbox",
+            )
+        if destination.type != CashboxType.accredited:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Agent top-up must target an accredited cashbox",
             )
         return
 
-    if operation_type == TransferType.topup:
-        if destination.id not in my_accredited_cashboxes:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Top-up request must target one of your accredited cashboxes",
-            )
-        return
-
-    if operation_type == TransferType.customer_cashout:
-        if source.id not in my_accredited_cashboxes:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Customer cashout must start from one of your accredited cashboxes",
-            )
-        if destination.id != source.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Customer cashout must use the same accredited cashbox as destination",
-            )
-        return
-
-    if source.id not in my_accredited_cashboxes:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Collection request must start from one of your accredited cashboxes",
-        )
+    # Accredited (and any other non-admin role) cannot initiate funding operations;
+    # accredited users move money only through customer remittances.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only admin can fund cashboxes directly; accredited users use customer remittances",
+    )
 
 
 
 def _determine_commission_role(source: Cashbox, destination: Cashbox, operation_type: TransferType) -> UserRole:
-    if operation_type == TransferType.network_transfer:
-        return UserRole.accredited
-
-    if operation_type == TransferType.customer_cashout:
-        return UserRole.accredited
-
     if source.type == CashboxType.treasury and destination.type == CashboxType.accredited:
         return UserRole.accredited
     if source.type == CashboxType.treasury and destination.type == CashboxType.agent:
@@ -350,9 +322,6 @@ def _determine_commission_role(source: Cashbox, destination: Cashbox, operation_
 
     if operation_type == TransferType.agent_funding:
         return UserRole.agent
-    if operation_type == TransferType.agent_collection:
-        return UserRole.agent
-
     if source.type == CashboxType.agent or destination.type == CashboxType.agent:
         return UserRole.agent
 
@@ -366,8 +335,6 @@ def _should_require_manual_review(
     *,
     risk_requires_review: bool,
 ) -> bool:
-    if operation_type == TransferType.customer_cashout:
-        return risk_requires_review
     # Product rule: all transfer operations require recipient approval.
     # (User and cashbox creation flows are outside this service.)
     return True
@@ -378,109 +345,119 @@ def _apply_admin_commission_override(
     requested_override: Decimal | None,
     performer: User,
 ) -> Decimal:
-    if requested_override is not None and performer.role == UserRole.admin:
+    if requested_override is not None and is_admin_role(performer.role):
         return Decimal(requested_override)
     return commission_percent
 
 
 
-def _is_review_from_source_side(
-    *,
-    operation_type: TransferType,
-    performed_by_id: UUID,
-    source_manager_user_id: UUID | None,
-    destination_manager_user_id: UUID | None,
-) -> bool:
-    if (
-        operation_type == TransferType.agent_funding
-        and destination_manager_user_id is not None
-        and performed_by_id == destination_manager_user_id
-    ):
-        return True
-
-    if (
-        operation_type == TransferType.topup
-        and destination_manager_user_id is not None
-        and performed_by_id == destination_manager_user_id
-    ):
-        return True
-
-    if (
-        operation_type in {TransferType.collection, TransferType.agent_collection}
-        and source_manager_user_id is not None
-        and performed_by_id != source_manager_user_id
-    ):
-        return True
-
-    return False
-
-
-
 def _can_user_review_pending_transfer(user: User, transfer: Transfer, source: Cashbox, destination: Cashbox) -> bool:
-    if user.role == UserRole.admin:
+    # Admins/super-admins are the only role that can approve OR reject anything.
+    if is_admin_role(user.role):
         return True
 
-    review_from_source_side = _is_review_from_source_side(
-        operation_type=transfer.operation_type,
-        performed_by_id=transfer.performed_by_id,
-        source_manager_user_id=source.manager_user_id,
-        destination_manager_user_id=destination.manager_user_id,
-    )
+    # The recipient confirms receipt of what was sent to them. The initiator can
+    # never approve their own request, and the source side never approves.
+    if transfer.performed_by_id == user.id:
+        return False
 
-    review_cashbox = source if review_from_source_side else destination
-
+    review_cashbox = destination
     if review_cashbox.type == CashboxType.treasury:
-        return user.role == UserRole.admin
+        return False  # only admin manages the treasury
 
     if user.role == UserRole.agent:
-        my_agent_cashboxes = _managed_cashbox_ids(user, CashboxType.agent)
-        return review_cashbox.id in my_agent_cashboxes
+        return review_cashbox.id in _managed_cashbox_ids(user, CashboxType.agent)
 
     if user.role == UserRole.accredited:
-        my_accredited_cashboxes = _managed_cashbox_ids(user, CashboxType.accredited)
-        return review_cashbox.id in my_accredited_cashboxes
+        return review_cashbox.id in _managed_cashbox_ids(user, CashboxType.accredited)
 
     return False
 
 
 
 def _apply_transfer_posting(db: Session, transfer: Transfer) -> None:
+    # All involved cashboxes (source, destination, treasury) are expected to be
+    # locked by the caller in a single global UUID order. Re-acquiring the locks
+    # here is a no-op within the same transaction and keeps this function safe to
+    # call directly in tests.
     source = _get_locked_cashbox(db, transfer.from_cashbox_id)
     destination = _get_locked_cashbox(db, transfer.to_cashbox_id)
-    treasury = _get_locked_treasury(db)
 
     if not source or not destination:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
 
-    if not treasury:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Treasury cashbox not configured")
-
-    if not source.is_active or not destination.is_active or not treasury.is_active:
+    if not source.is_active or not destination.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cashboxes involved in transfer must be active")
 
+    # Single-currency model: amounts are denominated in the transfer currency and
+    # each currency keeps its own independent balance per cashbox.
     amount = _q_money(Decimal(transfer.amount))
     commission_amount = _q_money(Decimal(transfer.commission_amount))
-    if getattr(transfer, "operation_type", None) == TransferType.customer_cashout:
-        source_out = amount
-        source_balance = _q_money(Decimal(source.balance))
-        if source_balance < source_out:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient source cashbox balance")
-        source.balance = _q_money(source_balance - source_out)
+    currency = (getattr(transfer, "source_currency", None) or "SYP").upper()
+
+    def _src_balance(cashbox: "Cashbox") -> Decimal:
+        balances: dict = cashbox.currency_balances or {}
+        return _q_money(Decimal(str(balances.get(currency, "0"))))
+
+    # Remittance: debit sender at approval, distribute commissions, net exits the system.
+    #
+    # Physical reality: receiver accredited pays the final customer CASH from their own funds.
+    # Digital accounting:
+    #   Sender debited:   transit = net + treasury_commission + receiver_commission
+    #   Treasury credited: treasury_commission
+    #   Receiver credited: receiver_commission ONLY (their earnings for paying cash out)
+    #   Net amount:        exits digital system (became physical cash the receiver paid out)
+    if getattr(transfer, "operation_type", None) == TransferType.remittance:
+        treasury = _get_locked_treasury(db)
+        if not treasury:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Treasury cashbox not configured")
+        if not treasury.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Treasury cashbox is not active")
+
+        net_amount = amount
+        receiver_commission = _q_money(Decimal(transfer.receiver_commission_amount))
+        treasury_commission = commission_amount
+
+        transit = _q_money(net_amount + receiver_commission + treasury_commission)
+
+        # Check sender has sufficient balance before debiting.
+        if _src_balance(source) < transit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient source cashbox balance to complete this remittance",
+            )
+
+        # Debit sender the full transit.
+        _update_cashbox_currency_balance(source, currency, -transit)
+
+        # Credit receiver ONLY their commission (net amount was paid as cash, exits digital system).
+        if receiver_commission > 0:
+            _update_cashbox_currency_balance(destination, currency, receiver_commission)
+
+        # Credit treasury their commission.
+        if treasury_commission > 0:
+            _update_cashbox_currency_balance(treasury, currency, treasury_commission)
+
         transfer.treasury_cashbox_id = treasury.id
         transfer.state = TransferState.completed
         transfer.review_required = False
         return
 
-    # Commission is deducted locally from the sender and moved to treasury.
-    source_out = _q_money(amount + commission_amount)
-    source_balance = _q_money(Decimal(source.balance))
+    # For all other transfer types, lock treasury and credit it with commission.
+    treasury = _get_locked_treasury(db)
+    if not treasury:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Treasury cashbox not configured")
+    if not treasury.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cashboxes involved in transfer must be active")
 
-    if source.type != CashboxType.treasury and source_balance < source_out:
+    source_out = _q_money(amount + commission_amount)
+    if source.type != CashboxType.treasury and _src_balance(source) < source_out:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient source cashbox balance")
 
-    source.balance = _q_money(source_balance - source_out)
-    destination.balance = _q_money(Decimal(destination.balance) + amount)
-    treasury.balance = _q_money(Decimal(treasury.balance) + commission_amount)
+    _update_cashbox_currency_balance(source, currency, -source_out)
+    _update_cashbox_currency_balance(destination, currency, amount)
+    if commission_amount > 0:
+        _update_cashbox_currency_balance(treasury, currency, commission_amount)
 
     transfer.treasury_cashbox_id = treasury.id
     transfer.state = TransferState.completed
@@ -489,10 +466,7 @@ def _apply_transfer_posting(db: Session, transfer: Transfer) -> None:
 
 
 def create_transfer(db: Session, payload: TransferCreateRequest, performer: User) -> Transfer:
-    if (
-        payload.from_cashbox_id == payload.to_cashbox_id
-        and payload.operation_type != TransferType.customer_cashout
-    ):
+    if payload.from_cashbox_id == payload.to_cashbox_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Source and destination cashbox must be different",
@@ -510,8 +484,27 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
         if existing:
             return existing
 
-    source = _get_locked_cashbox(db, payload.from_cashbox_id)
-    destination = _get_locked_cashbox(db, payload.to_cashbox_id)
+    # Fetch the treasury ID upfront (non-locking) so it is recorded correctly
+    # even for transfers that enter pending_review without calling _apply_transfer_posting.
+    treasury_for_record = (
+        db.query(Cashbox)
+        .filter(Cashbox.type == CashboxType.treasury, Cashbox.is_active == True)
+        .first()
+    )
+    if not treasury_for_record:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Treasury cashbox not configured",
+        )
+
+    # Lock source, destination and treasury together in one global UUID order to
+    # avoid deadlocks with concurrent transfers touching the same cashboxes.
+    locked = _lock_cashboxes_sorted(
+        db,
+        [payload.from_cashbox_id, payload.to_cashbox_id, treasury_for_record.id],
+    )
+    source = locked.get(payload.from_cashbox_id)
+    destination = locked.get(payload.to_cashbox_id)
 
     if not source or not destination:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
@@ -521,15 +514,6 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
 
     _validate_transfer_scope(source, destination, performer, payload.operation_type)
 
-    customer_name = _normalize_optional_text(payload.customer_name)
-    customer_phone = _normalize_optional_text(payload.customer_phone)
-    if payload.operation_type == TransferType.customer_cashout:
-        if not customer_name or not customer_phone:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Customer name and phone are required for customer cashout",
-            )
-
     requested_amount = _q_money(payload.amount)
     commission_role = _determine_commission_role(source, destination, payload.operation_type)
     is_cross_country = source.country != destination.country
@@ -538,35 +522,28 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
         and source.type == CashboxType.agent
         and destination.type == CashboxType.accredited
     )
-    is_accredited_network_transfer = (
-        payload.operation_type == TransferType.network_transfer
-        and source.type == CashboxType.accredited
-        and destination.type == CashboxType.accredited
-    )
-    is_treasury_to_user_funding = (
-        source.type == CashboxType.treasury
-        and destination.type in {CashboxType.accredited, CashboxType.agent}
-        and payload.operation_type in {TransferType.topup, TransferType.agent_funding}
-    )
-    is_user_to_treasury_collection = (
-        destination.type == CashboxType.treasury
-        and source.type in {CashboxType.accredited, CashboxType.agent}
-        and payload.operation_type in {TransferType.collection, TransferType.agent_collection}
-    )
-    sender_profit_enabled = is_agent_topup or is_accredited_network_transfer
-    if is_treasury_to_user_funding:
-        commission_percent = get_treasury_funding_commission_percent(db, destination.type)
-        agent_profit_percent = Decimal("0")
-    elif is_user_to_treasury_collection:
-        commission_percent = get_treasury_collection_commission_percent(db, source.type)
-        agent_profit_percent = Decimal("0")
-    else:
-        commission_percent, agent_profit_percent = get_commission_values(
-            db,
-            commission_role,
-            is_cross_country=is_cross_country,
-            sender_profit_enabled=sender_profit_enabled,
+    if is_agent_topup:
+        # Op3 (agent → accredited): the agent keeps their own commission; the
+        # treasury takes nothing. The agent fee uses the agent role's internal/
+        # external fee depending on whether it crosses a country border.
+        from app.features.commissions.models import CommissionRule
+        agent_rule = (
+            db.query(CommissionRule)
+            .filter(CommissionRule.role == UserRole.agent, CommissionRule.is_active == True)
+            .first()
         )
+        commission_percent = Decimal("0")
+        agent_profit_percent = (
+            Decimal(agent_rule.external_fee_percent if is_cross_country else agent_rule.internal_fee_percent)
+            if agent_rule
+            else Decimal("0")
+        )
+    else:
+        # Op1/Op2 (admin → agent / admin → accredited): treasury commission only.
+        commission_percent = get_treasury_funding_commission_percent(
+            db, destination.type, is_cross_country=is_cross_country
+        )
+        agent_profit_percent = Decimal("0")
     commission_percent = _apply_admin_commission_override(
         commission_percent,
         payload.commission_percent,
@@ -574,43 +551,36 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
     )
     commission_percent = _q_money(commission_percent)
     agent_profit_percent = _q_money(agent_profit_percent)
-    cashout_profit_percent = Decimal(payload.cashout_profit_percent or Decimal("0"))
-    cashout_profit_percent = _q_money(cashout_profit_percent)
 
-    if is_agent_topup or is_accredited_network_transfer or is_treasury_to_user_funding:
-        amount, commission_amount, agent_profit_amount = _split_requested_amount_with_fees(
-            requested_amount,
-            commission_percent,
-            agent_profit_percent,
-        )
-        cashout_profit_percent = Decimal("0")
-        cashout_profit_amount = Decimal("0")
-    elif payload.operation_type == TransferType.customer_cashout:
-        amount = requested_amount
-        # Customer cashout has no treasury commission by product rule.
-        commission_percent = Decimal("0")
-        commission_amount = Decimal("0")
-        agent_profit_percent = Decimal("0")
-        agent_profit_amount = Decimal("0")
-        cashout_profit_amount = _q_money((amount * cashout_profit_percent) / Decimal("100"))
-    else:
-        amount = requested_amount
-        commission_amount = _q_money((amount * commission_percent) / Decimal("100"))
-        agent_profit_amount = _q_money((amount * agent_profit_percent) / Decimal("100"))
-        cashout_profit_percent = Decimal("0")
-        cashout_profit_amount = Decimal("0")
+    # Gross input mode for every funding operation: the entered amount is the gross
+    # debited from the source, split into the credited amount + fees.
+    amount, commission_amount, agent_profit_amount = _split_requested_amount_with_fees(
+        requested_amount,
+        commission_percent,  # 0 for agent topup (agent keeps their fee, not treasury)
+        agent_profit_percent,
+    )
     net_amount = amount
 
-    transfer_note = _normalize_optional_text(payload.note)
-    if payload.operation_type == TransferType.customer_cashout:
-        customer_note = f"Customer: {customer_name} ({customer_phone})"
-        transfer_note = (
-            f"{customer_note} | {transfer_note}"
-            if transfer_note
-            else customer_note
-        )
+    src_currency = (payload.source_currency or "SYP").upper()
 
-    risk = evaluate_transfer_risk(db, performer, source, destination, amount)
+    # Reject immediately if source cashbox has insufficient balance.
+    # Treasury is admin-managed and exempt from this early check.
+    if source.type != CashboxType.treasury:
+        src_balance = _q_money(
+            Decimal(str((source.currency_balances or {}).get(src_currency, "0")))
+        )
+        source_out = _q_money(amount + commission_amount)
+        if src_balance < source_out:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient source cashbox balance",
+            )
+
+    transfer_note = _normalize_optional_text(payload.note)
+
+    risk = evaluate_transfer_risk(
+        db, performer, source, destination, amount, currency=src_currency
+    )
     review_required = _should_require_manual_review(
         performer,
         payload.operation_type,
@@ -620,7 +590,7 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
     transfer = Transfer(
         from_cashbox_id=source.id,
         to_cashbox_id=destination.id,
-        treasury_cashbox_id=source.id,
+        treasury_cashbox_id=treasury_for_record.id,
         operation_type=payload.operation_type,
         idempotency_key=payload.idempotency_key,
         state=TransferState.initiated,
@@ -631,14 +601,8 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
         is_cross_country=is_cross_country,
         agent_profit_percent=agent_profit_percent,
         agent_profit_amount=agent_profit_amount,
-        cashout_profit_percent=cashout_profit_percent,
-        cashout_profit_amount=cashout_profit_amount,
         net_amount=net_amount,
-        customer_name=customer_name,
-        customer_phone=customer_phone,
-        source_currency=payload.source_currency,
-        destination_currency=payload.destination_currency,
-        exchange_rate=_q_rate(payload.exchange_rate),
+        source_currency=src_currency,
         snapshot_at=datetime.now(timezone.utc),
         risk_score=_q_money(risk.score),
         review_required=review_required,
@@ -667,14 +631,11 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
             "destination_type": destination.type.value,
             "source_name": source.name,
             "destination_name": destination.name,
-            "exchange_rate": str(transfer.exchange_rate),
+            "currency": transfer.source_currency,
             "requested_amount": str(requested_amount),
             "credited_amount": str(amount),
             "commission_amount": str(commission_amount),
             "sender_profit_amount": str(agent_profit_amount),
-            "cashout_profit_amount": str(cashout_profit_amount),
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
             "approval_code_required": transfer.approval_code_required,
         },
     )
@@ -683,16 +644,11 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
 
     if review_required:
         transfer.state = TransferState.pending_review
-        waiting_reason = "Request is waiting for counterparty approval"
-        if _is_review_from_source_side(
-            operation_type=payload.operation_type,
-            performed_by_id=performer.id,
-            source_manager_user_id=source.manager_user_id,
-            destination_manager_user_id=destination.manager_user_id,
-        ):
-            waiting_reason = "Request is waiting for source-side approval"
-        elif destination.type == CashboxType.treasury:
+        # The recipient confirms receipt; treasury-bound requests wait for admin.
+        if destination.type == CashboxType.treasury:
             waiting_reason = "Request is waiting for admin approval"
+        else:
+            waiting_reason = "Request is waiting for recipient approval"
         _append_state_log(
             db,
             transfer,
@@ -700,9 +656,12 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
             actor_user_id=performer.id,
             reason=waiting_reason,
         )
-        db.commit()
-        db.refresh(transfer)
-        return transfer
+        return _commit_or_return_existing_transfer(
+            db,
+            transfer,
+            performed_by_id=performer.id,
+            idempotency_key=payload.idempotency_key,
+        )
 
     _apply_transfer_posting(db, transfer)
     post_transfer_ledger_entry(db, transfer, performer.id)
@@ -716,9 +675,12 @@ def create_transfer(db: Session, payload: TransferCreateRequest, performer: User
     )
     resolve_transfer_alerts(db, transfer.id)
 
-    db.commit()
-    db.refresh(transfer)
-    return transfer
+    return _commit_or_return_existing_transfer(
+        db,
+        transfer,
+        performed_by_id=performer.id,
+        idempotency_key=payload.idempotency_key,
+    )
 
 
 
@@ -730,8 +692,14 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
     if transfer.state != TransferState.pending_review:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transfer is not pending review")
 
-    source = _get_locked_cashbox(db, transfer.from_cashbox_id)
-    destination = _get_locked_cashbox(db, transfer.to_cashbox_id)
+    # Lock source, destination and treasury together in one global UUID order to
+    # avoid deadlocks with concurrent transfers touching the same cashboxes.
+    locked = _lock_cashboxes_sorted(
+        db,
+        [transfer.from_cashbox_id, transfer.to_cashbox_id, transfer.treasury_cashbox_id],
+    )
+    source = locked.get(transfer.from_cashbox_id)
+    destination = locked.get(transfer.to_cashbox_id)
     if not source or not destination:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
 
@@ -743,6 +711,11 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
     transfer.review_note = payload.note.strip() if payload.note else None
 
     if payload.action == TransferReviewAction.reject:
+        if not is_admin_role(reviewer.role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin can reject transfer requests",
+            )
         transfer.state = TransferState.rejected
         _clear_transfer_approval_code(transfer)
         _append_state_log(
@@ -786,22 +759,210 @@ def review_transfer(db: Session, transfer_id: UUID, payload: TransferReviewReque
             reason="Transfer executed after approval",
         )
         resolve_transfer_alerts(db, transfer.id)
+        db.commit()
+        db.refresh(transfer)
+        return transfer
     except HTTPException as exc:
-        transfer.state = TransferState.failed
-        _append_state_log(
-            db,
-            transfer,
-            TransferState.failed,
-            actor_user_id=reviewer.id,
-            reason=str(exc.detail),
+        # Rollback ALL in-session changes (balance updates, approved state log, etc.)
+        # so that no partial data is committed to the database.
+        logger.error(
+            "Transfer %s posting failed after approval by %s: %s",
+            transfer_id,
+            reviewer.id,
+            exc.detail,
+            exc_info=True,
+        )
+        db.rollback()
+        # Re-fetch a clean instance after rollback, then record failure only.
+        failed_transfer = (
+            db.query(Transfer).filter(Transfer.id == transfer_id).first()
+        )
+        if failed_transfer:
+            failed_transfer.state = TransferState.failed
+            failed_transfer.reviewed_by_id = reviewer.id
+            failed_transfer.reviewed_at = datetime.now(timezone.utc)
+            failed_transfer.review_note = str(exc.detail)
+            # The rollback restored the approval code; clear it so a failed
+            # transfer never keeps a live approval secret.
+            _clear_transfer_approval_code(failed_transfer)
+            _append_state_log(
+                db,
+                failed_transfer,
+                TransferState.failed,
+                actor_user_id=reviewer.id,
+                reason=str(exc.detail),
+            )
+            db.commit()
+            db.refresh(failed_transfer)
+            return failed_transfer
+        raise
+
+
+def create_remittance(db: Session, payload: RemittanceCreateRequest, performer: User) -> Transfer:
+    if performer.role != UserRole.accredited:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only accredited users can create remittances",
         )
 
-    db.commit()
-    db.refresh(transfer)
-    return transfer
+    my_accredited_cashboxes = _managed_cashbox_ids(performer, CashboxType.accredited)
+    if not my_accredited_cashboxes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not manage an active accredited cashbox",
+        )
+
+    if payload.from_cashbox_id not in my_accredited_cashboxes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Source cashbox must be one of your accredited cashboxes",
+        )
+
+    if payload.from_cashbox_id == payload.to_cashbox_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot create a remittance to your own cashbox",
+        )
+
+    if payload.idempotency_key:
+        existing = (
+            db.query(Transfer)
+            .filter(
+                Transfer.performed_by_id == performer.id,
+                Transfer.idempotency_key == payload.idempotency_key,
+            )
+            .first()
+        )
+        if existing:
+            return existing
+
+    treasury_for_record = (
+        db.query(Cashbox)
+        .filter(Cashbox.type == CashboxType.treasury, Cashbox.is_active == True)
+        .first()
+    )
+    if not treasury_for_record:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Treasury cashbox not configured",
+        )
+
+    # Lock source, destination and treasury together in one global UUID order.
+    locked = _lock_cashboxes_sorted(
+        db,
+        [payload.from_cashbox_id, payload.to_cashbox_id, treasury_for_record.id],
+    )
+    source = locked.get(payload.from_cashbox_id)
+    destination = locked.get(payload.to_cashbox_id)
+
+    if not source or not destination:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashbox not found")
+
+    if not source.is_active or not destination.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Both cashboxes must be active")
+
+    if source.type != CashboxType.accredited or destination.type != CashboxType.accredited:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Remittances must be between accredited cashboxes",
+        )
+
+    gross = _q_money(Decimal(str(payload.amount)))
+    treasury_pct, sender_pct, receiver_pct = get_remittance_commission_percents(db)
+    treasury_pct = _q_money(treasury_pct)
+    sender_pct = _q_money(sender_pct)
+    receiver_pct = _q_money(receiver_pct)
+
+    currency = (payload.source_currency or "SYP").upper()
+
+    sender_commission = _q_money(gross * sender_pct / Decimal("100"))
+    transit = _q_money(gross - sender_commission)
+    treasury_commission = _q_money(transit * treasury_pct / Decimal("100"))
+    receiver_commission = _q_money(transit * receiver_pct / Decimal("100"))
+    net_to_customer = _q_money(transit - treasury_commission - receiver_commission)
+
+    # No balance check at creation — debit happens at approval time.
+
+    is_cross_country = source.country != destination.country
+
+    transfer = Transfer(
+        from_cashbox_id=source.id,
+        to_cashbox_id=destination.id,
+        treasury_cashbox_id=treasury_for_record.id,
+        operation_type=TransferType.remittance,
+        idempotency_key=payload.idempotency_key,
+        state=TransferState.initiated,
+        amount=net_to_customer,
+        commission_role=UserRole.accredited,
+        commission_percent=treasury_pct,
+        commission_amount=treasury_commission,
+        is_cross_country=is_cross_country,
+        agent_profit_percent=sender_pct,
+        agent_profit_amount=sender_commission,
+        sender_commission_percent=sender_pct,
+        sender_commission_amount=sender_commission,
+        receiver_commission_percent=receiver_pct,
+        receiver_commission_amount=receiver_commission,
+        net_amount=net_to_customer,
+        sender_name=payload.sender_name.strip(),
+        sender_phone=payload.sender_phone.strip(),
+        sender_country=payload.sender_country.strip(),
+        sender_city=payload.sender_city.strip(),
+        receiver_name=payload.receiver_name.strip(),
+        receiver_phone=payload.receiver_phone.strip(),
+        receiver_country=payload.receiver_country.strip(),
+        receiver_city=payload.receiver_city.strip(),
+        source_currency=currency,
+        snapshot_at=datetime.now(timezone.utc),
+        risk_score=Decimal("0"),
+        review_required=True,
+        approval_code_required=False,
+        performed_by_id=performer.id,
+        note=_normalize_optional_text(payload.note),
+    )
+
+    db.add(transfer)
+    db.flush()
+
+    _append_state_log(
+        db,
+        transfer,
+        TransferState.initiated,
+        actor_user_id=performer.id,
+        context={
+            "operation_type": "remittance",
+            "gross": str(gross),
+            "transit": str(transit),
+            "treasury_commission": str(treasury_commission),
+            "sender_commission": str(sender_commission),
+            "receiver_commission": str(receiver_commission),
+            "net_to_customer": str(net_to_customer),
+            "sender_name": transfer.sender_name,
+            "receiver_name": transfer.receiver_name,
+            "is_cross_country": is_cross_country,
+        },
+    )
+
+    transfer.state = TransferState.pending_review
+    _append_state_log(
+        db,
+        transfer,
+        TransferState.pending_review,
+        actor_user_id=performer.id,
+        reason="Waiting for receiver accredited to confirm delivery",
+    )
+
+    return _commit_or_return_existing_transfer(
+        db,
+        transfer,
+        performed_by_id=performer.id,
+        idempotency_key=payload.idempotency_key,
+    )
 
 
 def _apply_transfer_cancellation(db: Session, transfer: Transfer) -> tuple[Cashbox, Cashbox, Cashbox]:
+    # Locks are acquired by the caller in a single global UUID order; re-acquiring
+    # here is a no-op within the same transaction.
     source = _get_locked_cashbox(db, transfer.from_cashbox_id)
     destination = _get_locked_cashbox(db, transfer.to_cashbox_id)
     treasury = _get_locked_treasury(db)
@@ -812,33 +973,59 @@ def _apply_transfer_cancellation(db: Session, transfer: Transfer) -> tuple[Cashb
     if not treasury:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Treasury cashbox not configured")
 
+    # Single-currency model: reverse the completed posting in the transfer currency.
     amount = _q_money(Decimal(transfer.amount))
     commission_amount = _q_money(Decimal(transfer.commission_amount))
+    currency = (getattr(transfer, "source_currency", None) or "SYP").upper()
 
-    if transfer.operation_type == TransferType.customer_cashout:
-        source.balance = _q_money(Decimal(source.balance) + amount)
+    def _cur_balance(cashbox: "Cashbox") -> Decimal:
+        balances: dict = cashbox.currency_balances or {}
+        return _q_money(Decimal(str(balances.get(currency, "0"))))
+
+    if transfer.operation_type == TransferType.remittance:
+        # Reverse the completed posting (symmetric with _apply_transfer_posting remittance path).
+        # At approval: sender debited transit, receiver credited receiver_commission only,
+        #              treasury credited treasury_commission, net exited the digital system.
+        # To cancel:   debit receiver_commission from receiver, debit treasury_commission from treasury,
+        #              restore full transit to sender.
+        receiver_commission = _q_money(Decimal(transfer.receiver_commission_amount or 0))
+        transit = _q_money(amount + receiver_commission + commission_amount)
+        if receiver_commission > 0:
+            if _cur_balance(destination) < receiver_commission:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot cancel remittance because receiver commission balance is insufficient",
+                )
+            _update_cashbox_currency_balance(destination, currency, -receiver_commission)
+        if commission_amount > 0:
+            if _cur_balance(treasury) < commission_amount:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot cancel remittance because treasury balance is insufficient",
+                )
+            _update_cashbox_currency_balance(treasury, currency, -commission_amount)
+        _update_cashbox_currency_balance(source, currency, transit)
         return source, destination, treasury
 
-    destination_balance = _q_money(Decimal(destination.balance))
-    if destination_balance < amount:
+    if _cur_balance(destination) < amount:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot cancel transfer because destination balance is not enough",
         )
-    destination.balance = _q_money(destination_balance - amount)
+    _update_cashbox_currency_balance(destination, currency, -amount)
 
     source_is_treasury = source.id == treasury.id
-    if not source_is_treasury:
-        treasury_balance = _q_money(Decimal(treasury.balance))
-        if treasury_balance < commission_amount:
+    if not source_is_treasury and commission_amount > 0:
+        if _cur_balance(treasury) < commission_amount:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot cancel transfer because treasury balance is not enough",
             )
-        treasury.balance = _q_money(treasury_balance - commission_amount)
+        _update_cashbox_currency_balance(treasury, currency, -commission_amount)
 
     source_restore = amount if source_is_treasury else _q_money(amount + commission_amount)
-    source.balance = _q_money(Decimal(source.balance) + source_restore)
+    _update_cashbox_currency_balance(source, currency, source_restore)
+
     return source, destination, treasury
 
 
@@ -859,32 +1046,6 @@ def _post_transfer_cancellation_ledger_entry(
     amount = _q_money(Decimal(transfer.amount))
     commission = _q_money(Decimal(transfer.commission_amount))
 
-    if transfer.operation_type == TransferType.customer_cashout:
-        clearing_account = ensure_customer_cashout_clearing_account(db)
-        create_ledger_entry(
-            db,
-            created_by_id=created_by_id,
-            transfer_id=None,
-            reference_type="transfer_cancellation",
-            reference_id=transfer.id,
-            description=f"Cancellation of customer cashout {transfer.id}",
-            lines=[
-                LedgerLineInput(
-                    account_id=source_account.id,
-                    debit=amount,
-                    credit=Decimal("0"),
-                    currency=transfer.source_currency,
-                ),
-                LedgerLineInput(
-                    account_id=clearing_account.id,
-                    debit=Decimal("0"),
-                    credit=amount,
-                    currency=transfer.destination_currency,
-                ),
-            ],
-        )
-        return
-
     source_debit = _q_money(amount + commission)
 
     lines = [
@@ -898,7 +1059,7 @@ def _post_transfer_cancellation_ledger_entry(
             account_id=destination_account.id,
             debit=Decimal("0"),
             credit=amount,
-            currency=transfer.destination_currency,
+            currency=transfer.source_currency,
         ),
     ]
 
@@ -908,7 +1069,7 @@ def _post_transfer_cancellation_ledger_entry(
                 account_id=treasury_account.id,
                 debit=Decimal("0"),
                 credit=commission,
-                currency=transfer.destination_currency,
+                currency=transfer.source_currency,
             )
         )
 
@@ -929,7 +1090,7 @@ def cancel_transfer(
     payload: TransferCancelRequest,
     reviewer: User,
 ) -> Transfer:
-    if reviewer.role != UserRole.admin:
+    if not is_admin_role(reviewer.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admin can cancel completed transfers",
@@ -945,6 +1106,11 @@ def cancel_transfer(
             detail="Only completed transfers can be cancelled",
         )
 
+    # Pre-lock all involved cashboxes in one global UUID order before reversing.
+    _lock_cashboxes_sorted(
+        db,
+        [transfer.from_cashbox_id, transfer.to_cashbox_id, transfer.treasury_cashbox_id],
+    )
     source, destination, treasury = _apply_transfer_cancellation(db, transfer)
     _post_transfer_cancellation_ledger_entry(
         db,
@@ -987,7 +1153,7 @@ def _end_of_day_exclusive(day: date) -> datetime:
 
 def _scoped_transfers_query(db: Session, user: User):
     query = db.query(Transfer)
-    if user.role == UserRole.admin:
+    if is_admin_role(user.role):
         return query
 
     visible_ids = _managed_cashbox_ids(user)
@@ -1068,6 +1234,17 @@ def daily_transfer_report(
     if to_date:
         scoped = scoped.filter(Transfer.created_at < _end_of_day_exclusive(to_date))
 
+    # Non-admin users should only see profits earned by their own role.
+    # Admins see the global unfiltered total across all roles.
+    _profit_condition = (
+        Transfer.state == TransferState.completed
+        if is_admin_role(user.role)
+        else (
+            (Transfer.state == TransferState.completed)
+            & (Transfer.commission_role == user.role)
+        )
+    )
+
     day_key = func.date(Transfer.created_at)
     query = (
         scoped.with_entities(
@@ -1103,28 +1280,12 @@ def daily_transfer_report(
             func.coalesce(
                 func.sum(
                     case(
-                        (
-                            Transfer.state == TransferState.completed,
-                            Transfer.agent_profit_amount,
-                        ),
+                        (_profit_condition, Transfer.agent_profit_amount),
                         else_=0,
                     )
                 ),
                 0,
             ).label("total_agent_profit"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            (Transfer.state == TransferState.completed)
-                            & (Transfer.operation_type == TransferType.customer_cashout),
-                            Transfer.cashout_profit_amount,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("total_cashout_profit"),
         )
         .group_by(day_key)
         .order_by(day_key.desc())
@@ -1144,7 +1305,6 @@ def daily_transfer_report(
                 "total_amount": _q_money(Decimal(row.total_amount or 0)),
                 "total_commission": _q_money(Decimal(row.total_commission or 0)),
                 "total_agent_profit": _q_money(Decimal(row.total_agent_profit or 0)),
-                "total_cashout_profit": _q_money(Decimal(row.total_cashout_profit or 0)),
             }
         )
     return results

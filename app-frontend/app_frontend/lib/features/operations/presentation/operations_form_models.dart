@@ -6,9 +6,7 @@ class OperationsTransferRequest {
     required this.operationType,
     this.note,
     this.commissionPercent,
-    this.customerName,
-    this.customerPhone,
-    this.cashoutProfitPercent,
+    this.sourceCurrency = 'SYP',
   });
 
   final String fromCashboxId;
@@ -17,7 +15,5 @@ class OperationsTransferRequest {
   final String operationType;
   final String? note;
   final String? commissionPercent;
-  final String? customerName;
-  final String? customerPhone;
-  final String? cashoutProfitPercent;
+  final String sourceCurrency;
 }

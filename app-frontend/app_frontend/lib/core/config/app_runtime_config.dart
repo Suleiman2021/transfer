@@ -16,6 +16,8 @@ class AppRuntimeConfig {
   static String get sessionTokenKey =>
       isAdminApp ? 'session_token_admin_app' : 'session_token_operations_app';
 
+  static const String brandName = 'سيدا نتوورك';
+
   static String get appTitle =>
-      isAdminApp ? 'لوحة تحكم الأدمن' : 'تطبيق المعتمدين والوكلاء';
+      isAdminApp ? '$brandName — الإدارة' : '$brandName — العمليات';
 }

@@ -13,6 +13,7 @@ Thumbs.db
 paths.txt
 temp_arabic_test.txt
 tree.py
+all_project_codes.txt
 
 # ---------------------------
 # Backend (FastAPI / Python)

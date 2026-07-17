@@ -1,11 +1,13 @@
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/network/api_error_messages.dart';
 import '../../../../core/ui/app_notifier.dart';
+import '../../../../core/utils/currency_utils.dart';
+import '../../../../core/utils/input_utils.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../../core/widgets/currency_amount_field.dart';
 import '../../../../core/widgets/responsive_page.dart';
-import '../../../shared/presentation/screens/qr_code_scan_screen.dart';
 import '../../data/admin_api.dart';
 import 'package:flutter/material.dart';
 
@@ -17,6 +19,7 @@ class AdminExecuteRequest {
     required this.amount,
     required this.commissionPercent,
     this.note,
+    this.sourceCurrency = 'SYP',
   });
 
   final String fromCashboxId;
@@ -25,6 +28,7 @@ class AdminExecuteRequest {
   final String amount;
   final String commissionPercent;
   final String? note;
+  final String sourceCurrency;
 }
 
 class AdminExecuteScreen extends StatefulWidget {
@@ -35,6 +39,7 @@ class AdminExecuteScreen extends StatefulWidget {
     required this.commissions,
     required this.token,
     required this.onSubmit,
+    this.initialUserId,
   });
 
   final List<AppUser> users;
@@ -42,6 +47,7 @@ class AdminExecuteScreen extends StatefulWidget {
   final List<CommissionRuleModel> commissions;
   final String token;
   final Future<void> Function(AdminExecuteRequest request) onSubmit;
+  final String? initialUserId;
 
   @override
   State<AdminExecuteScreen> createState() => _AdminExecuteScreenState();
@@ -51,19 +57,26 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
   final _api = AdminApi();
   final _key = GlobalKey<FormState>();
   final _search = TextEditingController();
-  final _userCode = TextEditingController();
   final _amount = TextEditingController();
   final _commission = TextEditingController(text: '0');
   final _note = TextEditingController();
   String? _userId;
-  bool _collection = false;
+  String? _cashboxId;
+  String _currency = 'SYP';
   bool _busy = false;
   bool _commissionTouched = false;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialUserId != null) {
+      _userId = widget.initialUserId;
+    }
+  }
+
+  @override
   void dispose() {
     _search.dispose();
-    _userCode.dispose();
     _amount.dispose();
     _commission.dispose();
     _note.dispose();
@@ -86,15 +99,31 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
   AppUser? get _selectedUser =>
       widget.users.where((user) => user.id == _userId).firstOrNull;
 
-  CashboxModel? get _selectedCashbox {
-    final user = _selectedUser;
-    if (user == null) return null;
+  List<CashboxModel> _cashboxesForUser(AppUser user) {
     return widget.cashboxes.where((box) {
       return box.isActive &&
           box.managerUserId == user.id &&
           ((user.role == UserRole.agent && box.isAgent) ||
               (user.role == UserRole.accredited && box.isAccredited));
-    }).firstOrNull;
+    }).toList();
+  }
+
+  List<CashboxModel> get _userCashboxes {
+    final user = _selectedUser;
+    if (user == null) return [];
+    return _cashboxesForUser(user);
+  }
+
+  CashboxModel? get _selectedCashboxModel {
+    final boxes = _userCashboxes;
+    if (boxes.isEmpty) return null;
+    if (boxes.length == 1) return boxes.first;
+    return boxes.where((box) => box.id == _cashboxId).firstOrNull;
+  }
+
+  void _resetCashboxForUser(AppUser user) {
+    final boxes = _cashboxesForUser(user);
+    _cashboxId = boxes.length == 1 ? boxes.first.id : null;
   }
 
   String _defaultCommissionFor(AppUser user) {
@@ -103,13 +132,9 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
         .firstOrNull;
     if (rule == null) return '0';
     if (user.role == UserRole.agent) {
-      return _collection
-          ? rule.treasuryCollectionFromAgentFeePercent
-          : rule.treasuryToAgentFeePercent;
+      return rule.treasuryToAgentFeePercent;
     }
-    return _collection
-        ? rule.treasuryCollectionFromAccreditedFeePercent
-        : rule.treasuryToAccreditedFeePercent;
+    return rule.treasuryToAccreditedFeePercent;
   }
 
   void _applyDefaultCommission({bool force = false}) {
@@ -119,8 +144,8 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
     _commission.text = _defaultCommissionFor(user);
   }
 
-  Future<void> _resolveCode([String? rawCode]) async {
-    final code = (rawCode ?? _userCode.text).trim();
+  Future<void> _resolveBySearch() async {
+    final code = _search.text.trim();
     if (code.isEmpty) return;
     try {
       final user = await _api.resolveUserCode(token: widget.token, code: code);
@@ -128,6 +153,7 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
         _userId = user.id;
         _search.text = user.fullName;
         _commissionTouched = false;
+        _resetCashboxForUser(user);
         _applyDefaultCommission(force: true);
       });
       if (mounted) AppNotifier.success(context, 'تم اختيار ${user.fullName}.');
@@ -136,49 +162,60 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
     }
   }
 
-  Future<void> _scanCode() async {
-    final code = await Navigator.of(
-      context,
-    ).push<String>(MaterialPageRoute(builder: (_) => const QrCodeScanScreen()));
-    if (code == null || code.isEmpty) return;
-    _userCode.text = code;
-    await _resolveCode(code);
+  String _boxBalanceText(CashboxModel box) {
+    final balances = box.currencyBalances;
+    if (balances.isEmpty) return '${moneyText(box.balanceValue)} SYP';
+    return balances.entries
+        .map((e) => formatCurrencyAmount(e.value, e.key))
+        .join(' • ');
   }
 
   Future<void> _submit() async {
     if (!_key.currentState!.validate()) return;
     final treasury = _treasury;
-    final cashbox = _selectedCashbox;
+    final cashbox = _selectedCashboxModel;
     final user = _selectedUser;
     if (treasury == null || cashbox == null || user == null) return;
-    final operationType = user.role == UserRole.agent
-        ? (_collection ? 'agent_collection' : 'agent_funding')
-        : (_collection ? 'collection' : 'topup');
+    final operationType =
+        user.role == UserRole.agent ? 'agent_funding' : 'topup';
+
+    final inputRaw = _amount.text.trim().replaceAll(',', '.');
+    final inputAmount = double.tryParse(inputRaw) ?? 0;
+
     final request = AdminExecuteRequest(
-      fromCashboxId: _collection ? cashbox.id : treasury.id,
-      toCashboxId: _collection ? treasury.id : cashbox.id,
+      fromCashboxId: treasury.id,
+      toCashboxId: cashbox.id,
       operationType: operationType,
-      amount: _amount.text.trim(),
+      amount: inputAmount.toStringAsFixed(2),
       commissionPercent: _commission.text.trim(),
       note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+      sourceCurrency: _currency,
     );
-    final amount = double.tryParse(request.amount.replaceAll(',', '.')) ?? 0;
     final percent =
         double.tryParse(request.commissionPercent.replaceAll(',', '.')) ?? 0;
-    final commission = amount * percent / 100;
-    final net = _collection ? amount : amount - commission;
-    final deducted = _collection ? amount + commission : amount;
+    final commission = inputAmount * percent / 100;
+    final net = inputAmount - commission;
+    final deducted = inputAmount + commission;
+
+    String fmtAmt(double val) => formatCurrencyAmount(val, _currency);
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('تأكيد العملية'),
-        content: Text(
-          '${transferTypeLabelAr(operationType)}\n'
-          '${request.amount} SYP\n'
-          'قيمة العمولة: ${moneyText(commission)}\n'
-          'الصافي الواصل: ${moneyText(net)}\n'
-          'المخصوم من المرسل: ${moneyText(deducted)}\n'
-          'عمولة: ${request.commissionPercent}%',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(transferTypeLabelAr(operationType)),
+            Text('${cashbox.name} — ${cashbox.city}, ${cashbox.country}'),
+            if (_currency != 'SYP') Text('العملة: ${currencySymbol(_currency)}'),
+            Text('المبلغ: ${fmtAmt(inputAmount)}'),
+            Text('عمولة: ${request.commissionPercent}%'),
+            Text('قيمة العمولة: ${fmtAmt(commission)}'),
+            Text('الصافي الواصل: ${fmtAmt(net)}'),
+            Text('المخصوم من المرسل: ${fmtAmt(deducted)}'),
+          ],
         ),
         actions: [
           TextButton(
@@ -204,10 +241,14 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
     if ((_userId == null || !options.any((user) => user.id == _userId)) &&
         options.isNotEmpty) {
       _userId = options.first.id;
+      final firstUser = options.first;
+      _resetCashboxForUser(firstUser);
       _applyDefaultCommission(force: true);
     }
     final user = _selectedUser;
-    final cashbox = _selectedCashbox;
+    final boxes = _userCashboxes;
+    final selectedBox = _selectedCashboxModel;
+
     return Scaffold(
       appBar: AppBar(title: const Text('تنفيذ حسب الاسم')),
       body: AppBackground(
@@ -223,40 +264,34 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                   autovalidateMode: AutovalidateMode.onUserInteraction,
                   child: Column(
                     children: [
-                      TextField(
-                        controller: _search,
-                        decoration: const InputDecoration(
-                          labelText: 'بحث باسم المستخدم',
-                          prefixIcon: Icon(Icons.search_rounded),
-                        ),
-                        onChanged: (_) => setState(() => _userId = null),
-                      ),
-                      const SizedBox(height: 10),
+                      // ── Search field + button ──
                       Row(
                         children: [
                           Expanded(
                             child: TextField(
-                              controller: _userCode,
+                              controller: _search,
+                              onTap: tapToMoveCursor(_search),
                               decoration: const InputDecoration(
-                                labelText: 'كود أو QR المستخدم',
-                                prefixIcon: Icon(Icons.qr_code_2_rounded),
+                                labelText: 'بحث باسم المستخدم أو الكود',
+                                prefixIcon: Icon(Icons.person_search_rounded),
                               ),
-                              onSubmitted: (_) => _resolveCode(),
+                              onChanged: (_) => setState(() {
+                                _userId = null;
+                                _cashboxId = null;
+                              }),
+                              onSubmitted: (_) => _resolveBySearch(),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          IconButton.filledTonal(
-                            onPressed: _scanCode,
-                            icon: const Icon(Icons.qr_code_scanner_rounded),
-                          ),
-                          const SizedBox(width: 6),
                           IconButton.filled(
-                            onPressed: () => _resolveCode(),
+                            onPressed: _resolveBySearch,
                             icon: const Icon(Icons.search_rounded),
                           ),
                         ],
                       ),
                       const SizedBox(height: 10),
+
+                      // ── User dropdown ──
                       DropdownButtonFormField<String>(
                         initialValue: _userId,
                         isExpanded: true,
@@ -265,71 +300,105 @@ class _AdminExecuteScreenState extends State<AdminExecuteScreen> {
                         ),
                         items: options
                             .map(
-                              (user) => DropdownMenuItem(
-                                value: user.id,
+                              (u) => DropdownMenuItem(
+                                value: u.id,
                                 child: Text(
-                                  '${user.fullName} (@${user.username}) - ${roleLabelAr(user.role)}',
+                                  '${u.fullName} (@${u.username}) - ${roleLabelAr(u.role)}',
                                 ),
                               ),
                             )
                             .toList(),
-                        onChanged: (value) => setState(() {
-                          _userId = value;
-                          _commissionTouched = false;
-                          _applyDefaultCommission(force: true);
-                        }),
+                        onChanged: (value) {
+                          final picked = widget.users
+                              .where((u) => u.id == value)
+                              .firstOrNull;
+                          setState(() {
+                            _userId = value;
+                            _commissionTouched = false;
+                            if (picked != null) _resetCashboxForUser(picked);
+                            _applyDefaultCommission(force: true);
+                          });
+                        },
                       ),
-                      const SizedBox(height: 10),
-                      SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: false,
-                            icon: Icon(Icons.south_west_rounded),
-                            label: Text('تمويل'),
-                          ),
-                          ButtonSegment(
-                            value: true,
-                            icon: Icon(Icons.north_east_rounded),
-                            label: Text('تحصيل'),
-                          ),
-                        ],
-                        selected: {_collection},
-                        onSelectionChanged: (value) => setState(() {
-                          _collection = value.first;
-                          _commissionTouched = false;
-                          _applyDefaultCommission(force: true);
-                        }),
-                      ),
-                      if (user != null && cashbox != null) ...[
+                      // ── Cashbox + Country side by side ──
+                      if (user != null && boxes.isNotEmpty) ...[
                         const SizedBox(height: 10),
-                        InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'الصندوق',
-                          ),
-                          child: Text(
-                            '${cashbox.name} - ${moneyText(cashbox.balanceValue)} SYP',
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: boxes.length == 1
+                                  ? InputDecorator(
+                                      decoration: const InputDecoration(
+                                        labelText: 'الصندوق',
+                                      ),
+                                      child: Text(
+                                        '${boxes.first.name}\n${_boxBalanceText(boxes.first)}',
+                                      ),
+                                    )
+                                  : DropdownButtonFormField<String>(
+                                      initialValue: _cashboxId,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'الصندوق',
+                                      ),
+                                      items: boxes
+                                          .map(
+                                            (box) => DropdownMenuItem(
+                                              value: box.id,
+                                              child: Text(
+                                                '${box.name} — ${_boxBalanceText(box)}',
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (v) =>
+                                          setState(() => _cashboxId = v),
+                                      validator: (_) => _cashboxId == null
+                                          ? 'اختر الصندوق'
+                                          : null,
+                                    ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'الدولة / المدينة',
+                                ),
+                                child: Text(
+                                  selectedBox != null
+                                      ? '${selectedBox.city}, ${selectedBox.country}'
+                                      : '—',
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                       const SizedBox(height: 10),
-                      TextFormField(
-                        controller: _amount,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(labelText: 'المبلغ'),
-                        validator: AppValidators.amount,
+
+                      // ── Amount + Currency ──
+                      CurrencyAmountField(
+                        amountController: _amount,
+                        selectedCurrency: _currency,
+                        onCurrencyChanged: (c) =>
+                            setState(() => _currency = c),
                       ),
                       const SizedBox(height: 10),
+
+                      // ── Commission ──
                       TextFormField(
                         controller: _commission,
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        onTap: tapToMoveCursor(_commission),
+                        onChanged: (_) => _commissionTouched = true,
                         decoration: const InputDecoration(
                           labelText: 'عمولة الخزنة %',
                         ),
-                        onChanged: (_) => _commissionTouched = true,
                         validator: AppValidators.percent,
                       ),
                       const SizedBox(height: 10),

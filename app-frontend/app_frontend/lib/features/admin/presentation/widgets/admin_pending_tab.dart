@@ -1,6 +1,7 @@
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/widgets/app_empty_state.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../../core/widgets/transfer_details_sheet.dart';
 import '../../../../core/widgets/transfer_tile.dart';
 import 'package:flutter/material.dart';
 
@@ -36,6 +37,13 @@ class AdminPendingTab extends StatelessWidget {
                       child: TransferTile(
                         transfer: transfer,
                         busy: busyTransferId == transfer.id,
+                        onTap: () => showTransferDetailsSheet(
+                          context,
+                          transfer: transfer,
+                          busy: busyTransferId == transfer.id,
+                          onApprove: () => onApprove(transfer),
+                          onReject: () => onReject(transfer),
+                        ),
                         onApprove: () => onApprove(transfer),
                         onReject: () => onReject(transfer),
                       ),

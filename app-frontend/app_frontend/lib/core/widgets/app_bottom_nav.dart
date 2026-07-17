@@ -24,23 +24,24 @@ class AppBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(7),
         decoration: BoxDecoration(
           color: AppTheme.textDark,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(26),
           boxShadow: [
             BoxShadow(
-              color: AppTheme.textDark.withValues(alpha: 0.18),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
+              color: AppTheme.textDark.withValues(alpha: 0.22),
+              blurRadius: 28,
+              offset: const Offset(0, 14),
             ),
           ],
         ),
         child: Row(
           children: [
-            for (var i = 0; i < items.length; i++)
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: 6),
               Expanded(
                 child: _BottomNavButton(
                   item: items[i],
@@ -48,6 +49,7 @@ class AppBottomNav extends StatelessWidget {
                   onTap: () => onChanged(i),
                 ),
               ),
+            ],
           ],
         ),
       ),
@@ -71,16 +73,17 @@ class _BottomNavButton extends StatelessWidget {
     return Tooltip(
       message: item.label,
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          height: 58,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          height: 56,
           decoration: BoxDecoration(
             color: selected
                 ? AppTheme.brandTeal
-                : Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(22),
+                : Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: Stack(
             alignment: Alignment.center,
@@ -90,18 +93,19 @@ class _BottomNavButton extends StatelessWidget {
                 children: [
                   Icon(
                     item.icon,
-                    size: 21,
-                    color: selected ? Colors.white : Colors.white70,
+                    size: selected ? 23 : 22,
+                    color: selected ? Colors.white : Colors.white60,
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     item.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.white70,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 10.7,
+                      color: selected ? Colors.white : Colors.white60,
+                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                      fontSize: 10.5,
+                      letterSpacing: 0.1,
                     ),
                   ),
                 ],

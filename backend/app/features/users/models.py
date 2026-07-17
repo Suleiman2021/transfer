@@ -10,9 +10,17 @@ from app.core.database import Base
 
 
 class UserRole(str, enum.Enum):
+    super_admin = "super_admin"
     admin = "admin"
     accredited = "accredited"
     agent = "agent"
+
+
+ADMIN_ROLES: frozenset[UserRole] = frozenset({UserRole.super_admin, UserRole.admin})
+
+
+def is_admin_role(role: "UserRole") -> bool:
+    return role in ADMIN_ROLES
 
 
 class User(Base):

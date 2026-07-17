@@ -21,12 +21,9 @@ class TransferState(str, enum.Enum):
 
 
 class TransferType(str, enum.Enum):
-    network_transfer = "network_transfer"
     topup = "topup"
-    collection = "collection"
     agent_funding = "agent_funding"
-    agent_collection = "agent_collection"
-    customer_cashout = "customer_cashout"
+    remittance = "remittance"
 
 
 class Transfer(Base):
@@ -44,7 +41,7 @@ class Transfer(Base):
     operation_type = Column(
         Enum(TransferType, name="transfertype"),
         nullable=False,
-        default=TransferType.network_transfer,
+        default=TransferType.topup,
         index=True,
     )
 
@@ -58,15 +55,24 @@ class Transfer(Base):
     is_cross_country = Column(Boolean, nullable=False, default=False)
     agent_profit_percent = Column(Numeric(5, 2), nullable=False, default=0)
     agent_profit_amount = Column(Numeric(18, 2), nullable=False, default=0)
-    cashout_profit_percent = Column(Numeric(5, 2), nullable=False, default=0)
-    cashout_profit_amount = Column(Numeric(18, 2), nullable=False, default=0)
     net_amount = Column(Numeric(18, 2), nullable=False)
-    customer_name = Column(String(120), nullable=True)
-    customer_phone = Column(String(40), nullable=True)
 
-    source_currency = Column(String(3), nullable=False, default="SYP")
-    destination_currency = Column(String(3), nullable=False, default="SYP")
-    exchange_rate = Column(Numeric(18, 6), nullable=False, default=1)
+    sender_name = Column(String(120), nullable=True)
+    sender_phone = Column(String(40), nullable=True)
+    sender_country = Column(String(80), nullable=True)
+    sender_city = Column(String(80), nullable=True)
+    receiver_name = Column(String(120), nullable=True)
+    receiver_phone = Column(String(40), nullable=True)
+    receiver_country = Column(String(80), nullable=True)
+    receiver_city = Column(String(80), nullable=True)
+    receiver_commission_percent = Column(Numeric(5, 2), nullable=False, default=0)
+    receiver_commission_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    sender_commission_percent = Column(Numeric(5, 2), nullable=False, default=0)
+    sender_commission_amount = Column(Numeric(18, 2), nullable=False, default=0)
+
+    # Each transfer operates in a single currency. There is no cross-currency
+    # conversion, so no destination currency or exchange rate is stored.
+    source_currency = Column(String(4), nullable=False, default="SYP")
     snapshot_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     risk_score = Column(Numeric(5, 2), nullable=False, default=0)

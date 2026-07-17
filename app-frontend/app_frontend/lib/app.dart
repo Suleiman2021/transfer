@@ -48,13 +48,15 @@ class CashboxTransferApp extends ConsumerWidget {
               mode: adminApp ? LoginMode.admin : LoginMode.operations,
             );
           }
-          if (adminApp && session.role != UserRole.admin) {
+          final isAdminRole = session.role == UserRole.admin ||
+              session.role == UserRole.superAdmin;
+          if (adminApp && !isAdminRole) {
             return const _RoleMismatchScreen(
               title: 'صلاحية غير متاحة',
               subtitle: 'هذا التطبيق مخصص للأدمن فقط.',
             );
           }
-          if (!adminApp && session.role == UserRole.admin) {
+          if (!adminApp && isAdminRole) {
             return const _RoleMismatchScreen(
               title: 'صلاحية غير متاحة',
               subtitle: 'هذا التطبيق مخصص للوكلاء والمعتمدين.',

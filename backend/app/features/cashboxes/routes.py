@@ -6,7 +6,7 @@ from app.core.dependencies import get_current_user
 from app.features.cashboxes.models import Cashbox
 from app.features.cashboxes.schemas import CashboxResponse
 from app.features.cashboxes.service import list_visible_cashboxes_for_user
-from app.features.users.models import User, UserRole
+from app.features.users.models import User, UserRole, is_admin_role
 
 
 router = APIRouter(prefix="/cashboxes", tags=["Cashboxes"])
@@ -25,7 +25,7 @@ def read_my_cashboxes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == UserRole.admin:
+    if is_admin_role(current_user.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin manages the treasury and network, not a dedicated personal cashbox list",

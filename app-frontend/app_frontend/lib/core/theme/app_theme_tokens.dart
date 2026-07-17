@@ -21,8 +21,20 @@ class AppThemeTokens {
   static const Color sky = Color(0xFFE8F3FF);
   static const Color sand = Color(0xFFFFF6DD);
 
-  static const double radiusXs = 6;
-  static const double radiusSm = 8;
-  static const double radiusMd = 10;
-  static const double radiusLg = 12;
+  // Softer, more consistent corner radii for a calmer, less boxy look.
+  static const double radiusXs = 8;
+  static const double radiusSm = 11;
+  static const double radiusMd = 14;
+  static const double radiusLg = 18;
+  static const double radiusXl = 22;
+  static const double radiusPill = 999;
+
+  // Single spacing scale used across cards, lists and sheets so the whole app
+  // breathes consistently instead of every widget picking its own gaps.
+  static const double space1 = 4;
+  static const double space2 = 8;
+  static const double space3 = 12;
+  static const double space4 = 16;
+  static const double space5 = 20;
+  static const double space6 = 24;
 }

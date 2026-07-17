@@ -1,13 +1,17 @@
 import '../../../../core/entities/app_models.dart';
 import '../../../../core/network/api_error_messages.dart';
 import '../../../../core/security/device_auth.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ui/app_notifier.dart';
+import '../../../../core/utils/currency_utils.dart';
+import '../../../../core/utils/input_utils.dart';
 import '../../../../core/utils/report_pdf.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_empty_state.dart';
 import '../../../../core/widgets/app_error_view.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../../core/widgets/cashbox_balance_sheet.dart';
 import '../../../../core/widgets/code_dialogs.dart';
 import '../../../../core/widgets/metric_card.dart';
 import '../../../../core/widgets/password_field.dart';
@@ -37,9 +41,8 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
   bool _loading = true;
   String? _error;
   UserTransferReportModel? _report;
-  List<CashboxModel> _allCashboxes = const [];
   String? _busyTransferId;
-  bool _actionBusy = false;
+  static const bool _actionBusy = false;
 
   @override
   void initState() {
@@ -57,14 +60,9 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
         widget.token,
         userId: widget.user.id,
       );
-      final cashboxes = await _api.fetchCashboxes(
-        widget.token,
-        trackActivity: false,
-      );
       if (mounted) {
         setState(() {
           _report = report;
-          _allCashboxes = cashboxes;
         });
       }
     } catch (error) {
@@ -168,74 +166,157 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
     }
   }
 
-  CashboxModel? get _treasury => _allCashboxes
-      .where((cashbox) => cashbox.isTreasury && cashbox.isActive)
-      .firstOrNull;
-
-  String _fundingType(CashboxModel cashbox) =>
-      cashbox.isAgent ? 'agent_funding' : 'topup';
-
-  String _collectionType(CashboxModel cashbox) =>
-      cashbox.isAgent ? 'agent_collection' : 'collection';
-
-  Future<void> _runTreasuryOperation(
-    CashboxModel cashbox,
-    String operationType,
-  ) async {
-    final treasury = _treasury;
-    if (treasury == null) {
-      AppNotifier.error(context, 'لا توجد خزنة مفعلة.');
-      return;
+  // ── ملخص المستخدم: أرصدة قابلة للضغط + إدارة الصناديق مباشرة ───────────────
+  Widget _summaryCard(UserTransferReportModel report) {
+    final Map<String, double> currencyTotals = {};
+    for (final box in report.cashboxes) {
+      box.currencyBalances.forEach((k, v) {
+        currencyTotals[k] = (currencyTotals[k] ?? 0) + v;
+      });
     }
-    final input = await showDialog<_TreasuryInput>(
-      context: context,
-      builder: (context) => _TreasuryOperationDialog(
-        title: transferTypeLabelAr(operationType),
-        fromName: operationType == 'topup' || operationType == 'agent_funding'
-            ? treasury.name
-            : cashbox.name,
-        toName: operationType == 'topup' || operationType == 'agent_funding'
-            ? cashbox.name
-            : treasury.name,
+    void openBalances() => showCashboxBalanceSheet(
+      context,
+      cashboxes: report.cashboxes,
+      ownerName: report.user.fullName,
+    );
+    return AppSectionCard(
+      title: 'ملخص المستخدم',
+      icon: Icons.analytics_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = (constraints.maxWidth - 10) / 2;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: MetricCard(
+                      label: 'الرصيد',
+                      value: currencyTotals.isEmpty ? '0' : '',
+                      currencyAmounts: currencyTotals,
+                      icon: Icons.wallet_rounded,
+                      hint: 'اضغط للتفاصيل',
+                      onTap: openBalances,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: MetricCard(
+                      label: 'الصناديق',
+                      value: report.summary.cashboxesCount.toString(),
+                      icon: Icons.inventory_rounded,
+                      color: Colors.blue,
+                      hint: report.cashboxes.isEmpty ? null : 'اضغط للتفاصيل',
+                      onTap: report.cashboxes.isEmpty ? null : openBalances,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          if (report.cashboxes.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Row(
+              children: [
+                Icon(Icons.tune_rounded, size: 16, color: AppTheme.textMuted),
+                SizedBox(width: 6),
+                Text(
+                  'إدارة الصناديق',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...report.cashboxes.map(
+              (box) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _cashboxManageCard(box),
+              ),
+            ),
+          ],
+        ],
       ),
     );
-    if (input == null) return;
+  }
 
-    final fromId = operationType == 'topup' || operationType == 'agent_funding'
-        ? treasury.id
-        : cashbox.id;
-    final toId = operationType == 'topup' || operationType == 'agent_funding'
-        ? cashbox.id
-        : treasury.id;
-
-    setState(() => _actionBusy = true);
-    try {
-      final transfer = await _api.createTransfer(
-        token: widget.token,
-        fromCashboxId: fromId,
-        toCashboxId: toId,
-        amount: input.amount,
-        operationType: operationType,
-        commissionPercent: input.commissionPercent,
-        note: input.note,
-        trackActivity: false,
-      );
-      if (!mounted) return;
-      await showTransferApprovalCodeDialog(context, transfer);
-      if (mounted) {
-        AppNotifier.success(
-          context,
-          transfer.state == 'pending_review'
-              ? 'تم إرسال العملية بانتظار الموافقة.'
-              : 'تم تنفيذ العملية.',
-        );
-      }
-      await _load();
-    } catch (error) {
-      if (mounted) AppNotifier.error(context, apiErrorText(error));
-    } finally {
-      if (mounted) setState(() => _actionBusy = false);
-    }
+  Widget _cashboxManageCard(CashboxModel box) {
+    final balances = box.currencyBalances.entries
+        .where((e) => e.value != 0)
+        .toList();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.glassLine),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppTheme.brandTeal.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(
+              Icons.inventory_2_rounded,
+              color: AppTheme.brandTeal,
+              size: 19,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${box.name} · ${cashboxTypeLabelAr(box.type)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  balances.isEmpty
+                      ? 'لا يوجد رصيد'
+                      : balances
+                            .map((e) => formatCurrencyAmount(e.value, e.key))
+                            .join('   ·   '),
+                  style: TextStyle(
+                    color: balances.isEmpty
+                        ? AppTheme.textSoft
+                        : AppTheme.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'تعديل الصندوق',
+            onPressed: () => _editCashbox(box),
+            icon: const Icon(Icons.edit_rounded, size: 19),
+            style: IconButton.styleFrom(
+              backgroundColor: AppTheme.glassTint,
+              foregroundColor: AppTheme.brandInk,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _review(TransferModel transfer, bool approve) async {
@@ -298,14 +379,16 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
             onPressed: _print,
             icon: const Icon(Icons.picture_as_pdf_rounded),
           ),
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => UserQrScreen.fromUser(widget.user),
+          if (widget.user.role != UserRole.admin &&
+              widget.user.role != UserRole.superAdmin)
+            IconButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => UserQrScreen.fromUser(widget.user),
+                ),
               ),
+              icon: const Icon(Icons.qr_code_2_rounded),
             ),
-            icon: const Icon(Icons.qr_code_2_rounded),
-          ),
         ],
       ),
       body: AppBackground(
@@ -329,41 +412,9 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                       )
                     : Column(
                         children: [
-                          AppSectionCard(
-                            title: 'ملخص المستخدم',
-                            icon: Icons.analytics_rounded,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final width = (constraints.maxWidth - 8) / 2;
-                                return Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    SizedBox(
-                                      width: width,
-                                      child: MetricCard(
-                                        label: 'الرصيد',
-                                        value: moneyText(
-                                          report.summary.totalBalance,
-                                        ),
-                                        icon: Icons.wallet_rounded,
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      width: width,
-                                      child: MetricCard(
-                                        label: 'الصناديق',
-                                        value: report.summary.cashboxesCount
-                                            .toString(),
-                                        icon: Icons.inventory_rounded,
-                                        color: Colors.blue,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
+                          if (widget.user.role != UserRole.admin &&
+                              widget.user.role != UserRole.superAdmin)
+                            _summaryCard(report),
                           const SizedBox(height: 12),
                           AppSectionCard(
                             title: 'صلاحيات الأدمن',
@@ -375,27 +426,28 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                                   const LinearProgressIndicator(minHeight: 3),
                                   const SizedBox(height: 10),
                                 ],
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _actionBusy
-                                            ? null
-                                            : _toggleActive,
-                                        icon: Icon(
-                                          report.user.isActive
-                                              ? Icons.person_off_rounded
-                                              : Icons.verified_rounded,
-                                        ),
-                                        label: Text(
-                                          report.user.isActive
-                                              ? 'إيقاف المستخدم'
-                                              : 'تفعيل المستخدم',
+                                if (report.user.role != UserRole.superAdmin)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: _actionBusy
+                                              ? null
+                                              : _toggleActive,
+                                          icon: Icon(
+                                            report.user.isActive
+                                                ? Icons.person_off_rounded
+                                                : Icons.verified_rounded,
+                                          ),
+                                          label: Text(
+                                            report.user.isActive
+                                                ? 'إيقاف المستخدم'
+                                                : 'تفعيل المستخدم',
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
+                                    ],
+                                  ),
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
@@ -417,77 +469,8 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
-                                if (_treasury == null)
-                                  const Text(
-                                    'لا يمكن تنفيذ عمليات الخزنة لأن الخزنة غير متاحة.',
-                                  )
-                                else if (report.cashboxes.isEmpty)
-                                  const Text(
-                                    'لا توجد صناديق تابعة لتنفيذ عمليات عليها.',
-                                  )
-                                else
-                                  Column(
-                                    children: report.cashboxes
-                                        .map(
-                                          (cashbox) => _UserCashboxActionCard(
-                                            cashbox: cashbox,
-                                            enabled:
-                                                report.user.isActive &&
-                                                !_actionBusy,
-                                            onFund: () => _runTreasuryOperation(
-                                              cashbox,
-                                              _fundingType(cashbox),
-                                            ),
-                                            onCollect: () =>
-                                                _runTreasuryOperation(
-                                                  cashbox,
-                                                  _collectionType(cashbox),
-                                                ),
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          AppSectionCard(
-                            title: 'الصناديق التابعة',
-                            icon: Icons.inventory_2_rounded,
-                            child: report.cashboxes.isEmpty
-                                ? const Text('لا توجد صناديق.')
-                                : Column(
-                                    children: report.cashboxes
-                                        .map(
-                                          (box) => ListTile(
-                                            contentPadding: EdgeInsets.zero,
-                                            title: Text(box.name),
-                                            subtitle: Text(
-                                              cashboxTypeLabelAr(box.type),
-                                            ),
-                                            trailing: Wrap(
-                                              spacing: 6,
-                                              crossAxisAlignment:
-                                                  WrapCrossAlignment.center,
-                                              children: [
-                                                Text(
-                                                  moneyText(box.balanceValue),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'تعديل الصندوق',
-                                                  onPressed: () =>
-                                                      _editCashbox(box),
-                                                  icon: const Icon(
-                                                    Icons.edit_rounded,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
                           ),
                           const SizedBox(height: 12),
                           AppSectionCard(
@@ -554,179 +537,6 @@ class _AdminUserReportScreenState extends State<AdminUserReportScreen> {
   }
 }
 
-class _UserCashboxActionCard extends StatelessWidget {
-  const _UserCashboxActionCard({
-    required this.cashbox,
-    required this.enabled,
-    required this.onFund,
-    required this.onCollect,
-  });
-
-  final CashboxModel cashbox;
-  final bool enabled;
-  final VoidCallback onFund;
-  final VoidCallback onCollect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${cashbox.name} - ${cashboxTypeLabelAr(cashbox.type)}',
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 3),
-          Text('الرصيد الحالي: ${moneyText(cashbox.balanceValue)} SYP'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: enabled ? onFund : null,
-                  icon: const Icon(Icons.south_west_rounded),
-                  label: Text(
-                    transferTypeLabelAr(
-                      cashbox.isAgent ? 'agent_funding' : 'topup',
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: enabled ? onCollect : null,
-                  icon: const Icon(Icons.north_east_rounded),
-                  label: Text(
-                    transferTypeLabelAr(
-                      cashbox.isAgent ? 'agent_collection' : 'collection',
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TreasuryOperationDialog extends StatefulWidget {
-  const _TreasuryOperationDialog({
-    required this.title,
-    required this.fromName,
-    required this.toName,
-  });
-
-  final String title;
-  final String fromName;
-  final String toName;
-
-  @override
-  State<_TreasuryOperationDialog> createState() =>
-      _TreasuryOperationDialogState();
-}
-
-class _TreasuryOperationDialogState extends State<_TreasuryOperationDialog> {
-  final _key = GlobalKey<FormState>();
-  final _amount = TextEditingController();
-  final _commission = TextEditingController(text: '0');
-  final _note = TextEditingController();
-
-  @override
-  void dispose() {
-    _amount.dispose();
-    _commission.dispose();
-    _note.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (!_key.currentState!.validate()) return;
-    Navigator.of(context).pop(
-      _TreasuryInput(
-        amount: _amount.text.trim(),
-        commissionPercent: _commission.text.trim(),
-        note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      title: Text(widget.title),
-      content: Form(
-        key: _key,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            InputDecorator(
-              decoration: const InputDecoration(labelText: 'المسار'),
-              child: Text('${widget.fromName} -> ${widget.toName}'),
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _amount,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(labelText: 'المبلغ'),
-              validator: AppValidators.amount,
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _commission,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(labelText: 'عمولة الخزنة %'),
-              validator: AppValidators.percent,
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _note,
-              maxLines: 2,
-              decoration: const InputDecoration(labelText: 'ملاحظة'),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('إلغاء'),
-        ),
-        ElevatedButton(onPressed: _submit, child: const Text('تنفيذ')),
-      ],
-    );
-  }
-}
-
-class _TreasuryInput {
-  const _TreasuryInput({
-    required this.amount,
-    required this.commissionPercent,
-    this.note,
-  });
-
-  final String amount;
-  final String commissionPercent;
-  final String? note;
-}
-
 class _UserEditInput {
   const _UserEditInput({
     required this.username,
@@ -791,12 +601,15 @@ class _UserEditDialogState extends State<_UserEditDialog> {
           children: [
             TextFormField(
               controller: _username,
+              textDirection: TextDirection.ltr,
+              onTap: tapToMoveCursor(_username),
               decoration: const InputDecoration(labelText: 'اسم المستخدم'),
               validator: AppValidators.username,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _fullName,
+              onTap: tapToMoveCursor(_fullName),
               decoration: const InputDecoration(labelText: 'الاسم الكامل'),
               validator: AppValidators.requiredText,
             ),
@@ -804,17 +617,20 @@ class _UserEditDialogState extends State<_UserEditDialog> {
             TextFormField(
               controller: _phone,
               keyboardType: TextInputType.phone,
+              onTap: tapToMoveCursor(_phone),
               decoration: const InputDecoration(labelText: 'رقم الهاتف'),
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _city,
+              onTap: tapToMoveCursor(_city),
               decoration: const InputDecoration(labelText: 'المدينة'),
               validator: AppValidators.requiredText,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _country,
+              onTap: tapToMoveCursor(_country),
               decoration: const InputDecoration(labelText: 'الدولة'),
               validator: AppValidators.requiredText,
             ),
@@ -950,18 +766,21 @@ class _CashboxEditDialogState extends State<_CashboxEditDialog> {
           children: [
             TextFormField(
               controller: _name,
+              onTap: tapToMoveCursor(_name),
               decoration: const InputDecoration(labelText: 'اسم الصندوق'),
               validator: AppValidators.requiredText,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _city,
+              onTap: tapToMoveCursor(_city),
               decoration: const InputDecoration(labelText: 'المدينة'),
               validator: AppValidators.requiredText,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _country,
+              onTap: tapToMoveCursor(_country),
               decoration: const InputDecoration(labelText: 'الدولة'),
               validator: AppValidators.requiredText,
             ),

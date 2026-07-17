@@ -1,4 +1,5 @@
 import '../theme/app_theme.dart';
+import '../theme/app_theme_tokens.dart';
 import 'package:flutter/material.dart';
 
 class AppSectionCard extends StatelessWidget {
@@ -21,8 +22,8 @@ class AppSectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.sectionCardDecoration(radius: 16),
+      padding: const EdgeInsets.all(AppThemeTokens.space4),
+      decoration: AppTheme.sectionCardDecoration(radius: AppThemeTokens.radiusLg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -30,15 +31,15 @@ class AppSectionCard extends StatelessWidget {
             children: [
               if (icon != null) ...[
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 38,
+                  height: 38,
                   decoration: BoxDecoration(
                     color: AppTheme.brandTeal.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppThemeTokens.radiusMd),
                   ),
-                  child: Icon(icon, color: AppTheme.brandTeal, size: 19),
+                  child: Icon(icon, color: AppTheme.brandTeal, size: 20),
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: AppThemeTokens.space3),
               ],
               Expanded(
                 child: Column(
@@ -62,7 +63,7 @@ class AppSectionCard extends StatelessWidget {
               ?trailing,
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppThemeTokens.space4),
           child,
         ],
       ),

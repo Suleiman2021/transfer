@@ -1,6 +1,7 @@
 import '../../../core/entities/app_models.dart';
 import '../../../core/network/api_error_messages.dart';
 import '../../../core/ui/app_notifier.dart';
+import '../../../core/utils/currency_utils.dart';
 import '../../../core/utils/dashboard_formatters.dart';
 import '../../../core/utils/report_pdf.dart';
 import '../../../core/widgets/app_background.dart';
@@ -12,6 +13,7 @@ import '../../../core/widgets/responsive_page.dart';
 import '../../../features/shared/presentation/screens/account_security_screen.dart';
 import '../data/operations_api.dart';
 import 'operations_form_models.dart';
+import 'screens/operations_execute_choice_screen.dart';
 import 'screens/operations_history_screen.dart';
 import 'screens/operations_reports_screen.dart';
 import 'widgets/operations_account_tab.dart';
@@ -148,7 +150,6 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
   }
 
   double _commissionPercentFor(OperationsTransferRequest request) {
-    if (request.operationType == 'customer_cashout') return 0;
     final source = _cashboxes
         .where((box) => box.id == request.fromCashboxId)
         .firstOrNull;
@@ -174,14 +175,19 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
     final percent =
         request.commissionPercent ??
         formatFixed2(_commissionPercentFor(request));
+    // amount is now in source_currency directly
     final amount = parseInputNumber(request.amount);
     final commission = amount * parseInputNumber(percent) / 100;
     final isSplitFee =
-        request.operationType == 'network_transfer' ||
         request.operationType == 'topup' ||
         request.operationType == 'agent_funding';
     final net = isSplitFee ? amount - commission : amount;
     final deducted = isSplitFee ? amount : amount + commission;
+
+    final currency = request.sourceCurrency;
+
+    String fmtAmt(double val) => formatCurrencyAmount(val, currency);
+
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -191,13 +197,12 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('العملية: ${transferTypeLabelAr(request.operationType)}'),
-            Text('المبلغ: ${request.amount}'),
+            if (currency != 'SYP') Text('العملة: ${currencySymbol(currency)}'),
+            Text('المبلغ: ${fmtAmt(amount)}'),
             Text('عمولة الخزنة: $percent%'),
-            Text('قيمة العمولة: ${moneyText(commission)}'),
-            Text('الصافي الواصل: ${moneyText(net)}'),
-            Text('المخصوم من المرسل: ${moneyText(deducted)}'),
-            if ((request.customerName ?? '').isNotEmpty)
-              Text('العميل: ${request.customerName}'),
+            Text('قيمة العمولة: ${fmtAmt(commission)}'),
+            Text('الصافي الواصل: ${fmtAmt(net)}'),
+            Text('المخصوم من المرسل: ${fmtAmt(deducted)}'),
           ],
         ),
         actions: [
@@ -229,9 +234,7 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
         amount: request.amount,
         operationType: request.operationType,
         note: request.note,
-        customerName: request.customerName,
-        customerPhone: request.customerPhone,
-        cashoutProfitPercent: request.cashoutProfitPercent,
+        sourceCurrency: request.sourceCurrency,
       );
       if (!mounted) return;
       await showTransferApprovalCodeDialog(context, transfer);
@@ -339,7 +342,17 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
         myCashboxes: _myCashboxes,
         transfers: _transfers,
         pending: _pending,
-        onTransfer: () => setState(() => _tab = 1),
+        onTransfer: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => OperationsExecuteChoiceScreen(
+              session: widget.session,
+              cashboxes: _cashboxes,
+              myCashboxes: _myCashboxes,
+              enabled: _isActive,
+              onSubmit: _submitTransfer,
+            ),
+          ),
+        ),
         onPending: () => setState(() => _tab = 2),
         onHistory: _openHistory,
         onReports: _openReports,
@@ -353,15 +366,18 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
         onSubmit: _submitTransfer,
       );
     } else if (_tab == 2) {
+      final isAdmin = widget.session.role == UserRole.admin ||
+          widget.session.role == UserRole.superAdmin;
       tab = OperationsPendingTab(
         transfers: _pending,
         busyTransferId: _busyTransferId,
         onApprove: (transfer) => _review(transfer, true),
-        onReject: (transfer) => _review(transfer, false),
+        onReject: isAdmin ? (transfer) => _review(transfer, false) : null,
       );
     } else {
       tab = OperationsAccountTab(
         session: widget.session,
+        myCashboxes: _myCashboxes,
         isActive: _isActive,
         onHistory: _openHistory,
         onReports: _openReports,
@@ -396,7 +412,23 @@ class _OperationsDashboardScreenState extends State<OperationsDashboardScreen> {
       ),
       bottomNavigationBar: AppBottomNav(
         currentIndex: _tab,
-        onChanged: (index) => setState(() => _tab = index),
+        onChanged: (index) {
+          if (index == 1) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => OperationsExecuteChoiceScreen(
+                  session: widget.session,
+                  cashboxes: _cashboxes,
+                  myCashboxes: _myCashboxes,
+                  enabled: _isActive,
+                  onSubmit: _submitTransfer,
+                ),
+              ),
+            );
+            return;
+          }
+          setState(() => _tab = index);
+        },
         items: [
           const AppBottomNavItem(icon: Icons.home_rounded, label: 'الرئيسية'),
           const AppBottomNavItem(icon: Icons.send_rounded, label: 'تحويل'),

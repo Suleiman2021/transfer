@@ -1,7 +1,7 @@
 ﻿import enum
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Numeric, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -24,6 +24,9 @@ class CashboxShift(Base):
     closed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
 
     status = Column(Enum(ShiftStatus, name="shiftstatus"), nullable=False, default=ShiftStatus.open, index=True)
+
+    # A shift reconciles the physical cash drawer for a single currency.
+    currency = Column(String(4), nullable=False, default="SYP")
 
     opening_balance = Column(Numeric(18, 2), nullable=False)
     expected_closing_balance = Column(Numeric(18, 2), nullable=True)

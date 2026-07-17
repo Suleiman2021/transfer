@@ -69,7 +69,11 @@ def get_current_user_allow_inactive(
 
 def require_roles(*roles: UserRole) -> Callable[..., Any]:
     def checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in roles:
+        effective_roles = set(roles)
+        # super_admin inherits every permission that admin has
+        if UserRole.admin in effective_roles:
+            effective_roles.add(UserRole.super_admin)
+        if current_user.role not in effective_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not allowed to perform this action",

@@ -6,9 +6,15 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.features.cashboxes.models import Cashbox, CashboxType
+from app.features.ledger.service import (
+    LedgerLineInput,
+    create_ledger_entry,
+    ensure_cashbox_ledger_account,
+    ensure_over_short_account,
+)
 from app.features.shifts.models import CashboxShift, ShiftStatus
 from app.features.shifts.schemas import ShiftCloseRequest, ShiftOpenRequest
-from app.features.users.models import User, UserRole
+from app.features.users.models import User, UserRole, is_admin_role
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -17,6 +23,21 @@ MONEY_QUANT = Decimal("0.01")
 
 def _q(value: Decimal) -> Decimal:
     return Decimal(value).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _cashbox_currency_balance(cashbox: Cashbox, currency: str) -> Decimal:
+    balances: dict = cashbox.currency_balances or {}
+    return _q(Decimal(str(balances.get(currency, "0"))))
+
+
+def _set_cashbox_currency_balance(cashbox: Cashbox, currency: str, value: Decimal) -> None:
+    balances = dict(cashbox.currency_balances or {})
+    value = _q(value)
+    if value == Decimal("0"):
+        balances.pop(currency, None)
+    else:
+        balances[currency] = str(value)
+    cashbox.currency_balances = balances
 
 
 
@@ -29,7 +50,7 @@ def _get_cashbox_or_404(db: Session, cashbox_id: UUID) -> Cashbox:
 
 
 def _validate_shift_access(cashbox: Cashbox, user: User) -> None:
-    if user.role == UserRole.admin:
+    if is_admin_role(user.role):
         return
 
     if cashbox.type == CashboxType.treasury:
@@ -67,11 +88,13 @@ def open_shift(db: Session, payload: ShiftOpenRequest, user: User) -> CashboxShi
     if existing_open:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="There is already an open shift for this cashbox")
 
+    currency = (payload.currency or "SYP").upper()
     shift = CashboxShift(
         cashbox_id=cashbox.id,
         opened_by_id=user.id,
         status=ShiftStatus.open,
-        opening_balance=_q(cashbox.balance),
+        currency=currency,
+        opening_balance=_cashbox_currency_balance(cashbox, currency),
         opening_note=payload.opening_note.strip() if payload.opening_note else None,
     )
 
@@ -93,7 +116,8 @@ def close_shift(db: Session, payload: ShiftCloseRequest, user: User) -> CashboxS
     cashbox = _get_cashbox_or_404(db, shift.cashbox_id)
     _validate_shift_access(cashbox, user)
 
-    expected = _q(cashbox.balance)
+    currency = (shift.currency or "SYP").upper()
+    expected = _cashbox_currency_balance(cashbox, currency)
     actual = _q(payload.actual_closing_balance)
     over_short = _q(actual - expected)
 
@@ -107,7 +131,30 @@ def close_shift(db: Session, payload: ShiftCloseRequest, user: User) -> CashboxS
     shift.settlement_applied = payload.settlement_applied
 
     if payload.settlement_applied:
-        cashbox.balance = actual
+        # Settle only this shift's currency; other currencies are untouched.
+        _set_cashbox_currency_balance(cashbox, currency, actual)
+        if over_short != Decimal("0"):
+            cashbox_account = ensure_cashbox_ledger_account(db, cashbox)
+            adj_account = ensure_over_short_account(db)
+            abs_diff = _q(abs(over_short))
+            if over_short > Decimal("0"):
+                lines = [
+                    LedgerLineInput(account_id=cashbox_account.id, debit=abs_diff, credit=Decimal("0"), currency=currency),
+                    LedgerLineInput(account_id=adj_account.id, debit=Decimal("0"), credit=abs_diff, currency=currency),
+                ]
+            else:
+                lines = [
+                    LedgerLineInput(account_id=adj_account.id, debit=abs_diff, credit=Decimal("0"), currency=currency),
+                    LedgerLineInput(account_id=cashbox_account.id, debit=Decimal("0"), credit=abs_diff, currency=currency),
+                ]
+            create_ledger_entry(
+                db,
+                created_by_id=user.id,
+                reference_type="shift_settlement",
+                reference_id=shift.id,
+                description=f"Shift settlement: {cashbox.name} {currency} ({over_short:+.2f})",
+                lines=lines,
+            )
 
     db.commit()
     db.refresh(shift)

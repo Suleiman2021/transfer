@@ -1,9 +1,13 @@
 import '../../../../core/entities/app_models.dart';
+import '../../../../core/utils/currency_utils.dart';
 import '../../../../core/widgets/app_section_card.dart';
+import '../../../../core/widgets/cashbox_balance_sheet.dart';
 import '../../../../core/widgets/finance_card.dart';
 import '../../../../core/widgets/metric_card.dart';
 import '../../../../core/widgets/quick_action_tile.dart';
+import '../../../../core/widgets/transfer_details_sheet.dart';
 import '../../../../core/widgets/transfer_tile.dart';
+import 'operations_metric_sheets.dart';
 import 'package:flutter/material.dart';
 
 class OperationsHomeTab extends StatelessWidget {
@@ -28,35 +32,71 @@ class OperationsHomeTab extends StatelessWidget {
   final VoidCallback onHistory;
   final VoidCallback onReports;
 
+  /// يجمع currency_balances الفعلية من كل الصناديق.
+  Map<String, double> _buildCurrencyTotals() {
+    final totals = <String, double>{};
+    for (final box in myCashboxes) {
+      for (final e in box.currencyBalances.entries) {
+        if (e.value != 0) totals[e.key] = (totals[e.key] ?? 0) + e.value;
+      }
+    }
+    return totals;
+  }
+
+  /// يحسب الأرباح بعملتها الأصلية مباشرة (المبالغ مخزنة بعملة المصدر).
+  /// يُحسب فقط من العمليات التي يكون فيها صندوق المستخدم هو المُرسِل،
+  /// لتجنب احتساب أرباح الطرف الآخر (مثل ربح الوكيل في عمليات topup الواصلة).
+  Map<String, double> _buildProfitByCurrency() {
+    final myCashboxIds = myCashboxes.map((b) => b.id).toSet();
+    final profits = <String, double>{};
+    for (final t in transfers.where((t) => t.state == 'completed')) {
+      if (!myCashboxIds.contains(t.fromCashboxId)) continue;
+      final profit = t.agentProfitValue;
+      if (profit <= 0) continue;
+      final currency = t.sourceCurrency;
+      profits[currency] = (profits[currency] ?? 0) + profit;
+    }
+    return profits;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final total = myCashboxes.fold<double>(
-      0,
-      (sum, box) => sum + box.balanceValue,
-    );
-    final profit = transfers
-        .where((transfer) => transfer.state == 'completed')
-        .fold<double>(
-          0,
-          (sum, transfer) =>
-              sum + transfer.agentProfitValue + transfer.cashoutProfitValue,
-        );
+    final currencyTotals = _buildCurrencyTotals();
+    final profitByCurrency = _buildProfitByCurrency();
+
+    // chips الأرباح: chip لكل عملة
+    final profitChips = profitByCurrency.entries
+        .where((e) => e.value > 0)
+        .map<Widget>((e) => FinanceChip(
+              label: 'ربح ${currencyLabel(e.key)}',
+              value: formatCurrencyAmount(e.value, e.key),
+            ))
+        .toList();
+
     return Column(
       children: [
         FinanceCard(
           title: session.role == UserRole.agent
               ? 'رصيد صناديق الوكيل'
               : 'رصيد صناديق المعتمد',
-          amount: '${moneyText(total)} SYP',
-          subtitle: '${session.fullName} - ${session.city}, ${session.country}',
+          currencyAmounts: currencyTotals,
+          subtitle:
+              '${session.fullName} — ${session.city}، ${session.country}',
           chips: [
             FinanceChip(
               label: 'الصناديق',
               value: myCashboxes.length.toString(),
             ),
             FinanceChip(label: 'المعلقة', value: pending.length.toString()),
-            FinanceChip(label: 'الربح', value: moneyText(profit)),
+            ...profitChips,
           ],
+          onTap: myCashboxes.isEmpty
+              ? null
+              : () => showCashboxBalanceSheet(
+                    context,
+                    cashboxes: myCashboxes,
+                    ownerName: session.fullName,
+                  ),
         ),
         const SizedBox(height: 12),
         LayoutBuilder(
@@ -72,24 +112,48 @@ class OperationsHomeTab extends StatelessWidget {
                     label: 'صناديقي',
                     value: myCashboxes.length.toString(),
                     icon: Icons.inventory_2_rounded,
+                    hint: myCashboxes.isEmpty ? null : 'اضغط للتفاصيل',
+                    onTap: myCashboxes.isEmpty
+                        ? null
+                        : () => showMyCashboxesSheet(
+                              context,
+                              cashboxes: myCashboxes,
+                              ownerName: session.fullName,
+                            ),
                   ),
                 ),
                 SizedBox(
                   width: width,
                   child: MetricCard(
                     label: 'الرصيد',
-                    value: moneyText(total),
+                    value: currencyTotals.isEmpty ? '0' : '',
                     icon: Icons.wallet_rounded,
                     color: Colors.blue,
+                    hint: myCashboxes.isEmpty ? null : 'اضغط للتفاصيل',
+                    currencyAmounts: currencyTotals,
+                    onTap: myCashboxes.isEmpty
+                        ? null
+                        : () => showCashboxBalanceSheet(
+                              context,
+                              cashboxes: myCashboxes,
+                              ownerName: session.fullName,
+                            ),
                   ),
                 ),
                 SizedBox(
                   width: width,
                   child: MetricCard(
                     label: 'الأرباح',
-                    value: moneyText(profit),
+                    value: profitByCurrency.isEmpty ? '0' : '',
                     icon: Icons.trending_up_rounded,
                     color: Colors.green,
+                    hint: 'اضغط للتفاصيل',
+                    currencyAmounts: profitByCurrency,
+                    onTap: () => showProfitsDetailSheet(
+                      context,
+                      transfers: transfers,
+                      myCashboxIds: myCashboxes.map((b) => b.id).toSet(),
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -99,6 +163,12 @@ class OperationsHomeTab extends StatelessWidget {
                     value: pending.length.toString(),
                     icon: Icons.pending_actions_rounded,
                     color: Colors.amber,
+                    hint: pending.isEmpty ? 'لا طلبات معلقة' : 'اضغط للعرض',
+                    onTap: () => showPendingBriefSheet(
+                      context,
+                      pending: pending,
+                      onGoToPending: onPending,
+                    ),
                   ),
                 ),
               ],
@@ -120,7 +190,7 @@ class OperationsHomeTab extends StatelessWidget {
                   SizedBox(
                     width: width,
                     child: QuickActionTile(
-                      title: 'تنفيذ تحويل',
+                      title: 'تنفيذ عملية',
                       icon: Icons.send_rounded,
                       onTap: onTransfer,
                     ),
@@ -170,7 +240,13 @@ class OperationsHomeTab extends StatelessWidget {
                       .map(
                         (transfer) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: TransferTile(transfer: transfer),
+                          child: TransferTile(
+                            transfer: transfer,
+                            onTap: () => showTransferDetailsSheet(
+                              context,
+                              transfer: transfer,
+                            ),
+                          ),
                         ),
                       )
                       .toList(),

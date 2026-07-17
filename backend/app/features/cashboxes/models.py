@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, JSON, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -26,7 +26,9 @@ class Cashbox(Base):
 
     manager_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
 
-    balance = Column(Numeric(18, 2), nullable=False, default=0)
+    # Per-currency balances are the single source of truth. Each currency keeps
+    # its own independent balance; there is no cross-currency conversion.
+    currency_balances = Column(JSON, nullable=False, server_default='{}')
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

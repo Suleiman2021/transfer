@@ -4,6 +4,7 @@ import '../../../../core/widgets/app_empty_state.dart';
 import '../../../../core/widgets/app_section_card.dart';
 import '../../../../core/widgets/date_filter_bar.dart';
 import '../../../../core/widgets/responsive_page.dart';
+import '../../../../core/widgets/transfer_details_sheet.dart';
 import '../../../../core/widgets/transfer_tile.dart';
 import 'package:flutter/material.dart';
 
@@ -67,7 +68,13 @@ class OperationsHistoryScreen extends StatelessWidget {
                             .map(
                               (transfer) => Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
-                                child: TransferTile(transfer: transfer),
+                                child: TransferTile(
+                                  transfer: transfer,
+                                  onTap: () => showTransferDetailsSheet(
+                                    context,
+                                    transfer: transfer,
+                                  ),
+                                ),
                               ),
                             )
                             .toList(),

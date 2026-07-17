@@ -13,6 +13,7 @@ import '../../../features/shared/presentation/screens/user_qr_screen.dart';
 import '../data/admin_api.dart';
 import 'screens/add_cashbox_screen.dart';
 import 'screens/add_user_screen.dart';
+import 'screens/admin_execute_choice_screen.dart';
 import 'screens/admin_execute_screen.dart';
 import 'screens/admin_user_report_screen.dart';
 import 'screens/commission_settings_screen.dart';
@@ -212,6 +213,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         operationType: request.operationType,
         commissionPercent: request.commissionPercent,
         note: request.note,
+        sourceCurrency: request.sourceCurrency,
       );
       if (!mounted) return;
       await showTransferApprovalCodeDialog(context, transfer);
@@ -226,47 +228,35 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   Future<void> _saveCommissions({
-    required String accreditedInternal,
-    required String accreditedExternal,
-    required String accreditedProfitInternal,
-    required String accreditedProfitExternal,
     required String agentInternal,
     required String agentExternal,
-    required String agentProfitInternal,
-    required String agentProfitExternal,
-    required String treasuryToAccredited,
-    required String treasuryToAgent,
-    required String collectionFromAccredited,
-    required String collectionFromAgent,
+    required String treasuryToAgentInternal,
+    required String treasuryToAgentExternal,
+    required String treasuryToAccreditedInternal,
+    required String treasuryToAccreditedExternal,
+    required String remittanceTreasury,
+    required String remittanceSender,
+    required String remittanceReceiver,
   }) async {
     try {
-      await _api.saveCommission(
-        token: widget.session.token,
-        role: UserRole.accredited,
-        internalFeePercent: accreditedInternal,
-        externalFeePercent: accreditedExternal,
-        agentTopupProfitInternalPercent: accreditedProfitInternal,
-        agentTopupProfitExternalPercent: accreditedProfitExternal,
-      );
       await _api.saveCommission(
         token: widget.session.token,
         role: UserRole.agent,
         internalFeePercent: agentInternal,
         externalFeePercent: agentExternal,
-        agentTopupProfitInternalPercent: agentProfitInternal,
-        agentTopupProfitExternalPercent: agentProfitExternal,
       );
       await _api.saveCommission(
         token: widget.session.token,
         role: UserRole.admin,
         internalFeePercent: '0',
         externalFeePercent: '0',
-        agentTopupProfitInternalPercent: '0',
-        agentTopupProfitExternalPercent: '0',
-        treasuryToAccreditedFeePercent: treasuryToAccredited,
-        treasuryToAgentFeePercent: treasuryToAgent,
-        treasuryCollectionFromAccreditedFeePercent: collectionFromAccredited,
-        treasuryCollectionFromAgentFeePercent: collectionFromAgent,
+        treasuryToAgentInternalFeePercent: treasuryToAgentInternal,
+        treasuryToAgentExternalFeePercent: treasuryToAgentExternal,
+        treasuryToAccreditedInternalFeePercent: treasuryToAccreditedInternal,
+        treasuryToAccreditedExternalFeePercent: treasuryToAccreditedExternal,
+        remittanceTreasuryPercent: remittanceTreasury,
+        remittanceSenderPercent: remittanceSender,
+        remittanceReceiverPercent: remittanceReceiver,
       );
       if (mounted) {
         AppNotifier.success(context, 'تم حفظ العمولات.');
@@ -369,10 +359,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         pending: _pending,
         commissionRevenue: _commissionRevenue,
         onAddUser: () => _push(AddUserScreen(onSubmit: _createUser)),
-        onAddCashbox: () =>
-            _push(AddCashboxScreen(users: _users, onSubmit: _createCashbox)),
+        onAddCashbox: () => _push(
+          AddCashboxScreen(
+            users: _users,
+            cashboxes: _cashboxes,
+            onSubmit: _createCashbox,
+          ),
+        ),
         onExecute: () => _push(
-          AdminExecuteScreen(
+          AdminExecuteChoiceScreen(
             users: _users,
             cashboxes: _cashboxes,
             commissions: _commissions,
@@ -386,10 +381,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             onSave: _saveCommissions,
           ),
         ),
+        onApprove: (transfer) => _review(transfer, true),
+        onReject: (transfer) => _review(transfer, false),
+        onCancel: _cancel,
       );
     } else if (_tab == 1) {
       tab = AdminUsersTab(
         users: _users,
+        currentRole: widget.session.role,
         onOpenReport: (user) => _push(
           AdminUserReportScreen(token: widget.session.token, user: user),
         ),

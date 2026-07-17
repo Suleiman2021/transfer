@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.features.auth.schemas import LoginRequest, LoginResponse, MeResponse
 from app.features.auth.service import login_admin_user, login_non_admin_user
-from app.features.users.schemas import OwnPasswordChangeRequest, UserResponse
+from app.features.users.schemas import OwnPasswordChangeRequest, UserQrResolveResponse, UserResponse
 from app.features.users.service import change_own_password, get_user_by_code
-from app.features.users.models import User
+from app.features.users.models import User, UserRole
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -58,10 +58,21 @@ def change_password(
     )
 
 
-@router.get("/users/resolve-code", response_model=UserResponse)
+@router.get("/users/resolve-code", response_model=UserQrResolveResponse)
 def resolve_user_code(
     code: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return get_user_by_code(db, code)
+    if current_user.role in (UserRole.admin, UserRole.super_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts do not participate in QR-based transfers",
+        )
+    resolved = get_user_by_code(db, code)
+    if resolved.role in (UserRole.admin, UserRole.super_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot resolve admin accounts via QR code",
+        )
+    return resolved

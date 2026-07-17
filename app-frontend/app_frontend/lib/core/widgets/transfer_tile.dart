@@ -1,5 +1,7 @@
 import '../entities/app_models.dart';
 import '../theme/app_theme.dart';
+import '../utils/currency_utils.dart';
+import '../utils/dashboard_formatters.dart';
 import 'status_badge.dart';
 import 'package:flutter/material.dart';
 
@@ -24,12 +26,12 @@ class TransferTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(14),
           decoration: AppTheme.tileDecoration().copyWith(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,17 +79,22 @@ class TransferTile extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '${moneyText(transfer.amountValue)} SYP',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
+                  Expanded(
+                    child: Text(
+                      formatCurrencyAmount(transfer.amountValue, transfer.sourceCurrency),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   Text(
-                    transfer.createdAt,
+                    shortDateTimeText(transfer.createdAt),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -101,21 +108,24 @@ class TransferTile extends StatelessWidget {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: busy ? null : onReject,
-                        icon: const Icon(Icons.close_rounded),
-                        label: const Text('رفض'),
+                    if (onReject != null) ...[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : onReject,
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('رفض'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: busy ? null : onApprove,
-                        icon: const Icon(Icons.check_rounded),
-                        label: Text(busy ? 'جار...' : 'اعتماد'),
+                      const SizedBox(width: 8),
+                    ],
+                    if (onApprove != null)
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: busy ? null : onApprove,
+                          icon: const Icon(Icons.check_rounded),
+                          label: Text(busy ? 'جار...' : 'اعتماد'),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],

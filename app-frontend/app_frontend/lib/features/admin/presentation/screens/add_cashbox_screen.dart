@@ -1,4 +1,5 @@
 import '../../../../core/entities/app_models.dart';
+import '../../../../core/utils/input_utils.dart';
 import '../../../../core/validation/app_validators.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_section_card.dart';
@@ -9,10 +10,12 @@ class AddCashboxScreen extends StatefulWidget {
   const AddCashboxScreen({
     super.key,
     required this.users,
+    required this.cashboxes,
     required this.onSubmit,
   });
 
   final List<AppUser> users;
+  final List<CashboxModel> cashboxes;
   final Future<void> Function({
     required String name,
     required String city,
@@ -55,6 +58,17 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
       )
       .toList();
 
+  String? _validateName(String? value) {
+    final base = AppValidators.requiredText(value);
+    if (base != null) return base;
+    final name = value!.trim();
+    final exists = widget.cashboxes.any(
+      (box) => box.name.trim().toLowerCase() == name.toLowerCase(),
+    );
+    if (exists) return 'يوجد صندوق بهذا الاسم مسبقاً';
+    return null;
+  }
+
   Future<void> _submit() async {
     if (!_key.currentState!.validate()) return;
     setState(() => _busy = true);
@@ -63,7 +77,7 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
       city: _city.text,
       country: _country.text,
       type: _type,
-      managerUserId: _type == 'treasury' ? null : _managerId,
+      managerUserId: _managerId,
       openingBalance: _opening.text,
     );
     if (mounted) setState(() => _busy = false);
@@ -72,11 +86,9 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
   @override
   Widget build(BuildContext context) {
     final managers = _managers;
-    if (_type != 'treasury' &&
-        (_managerId == null ||
-            !managers.any((user) => user.id == _managerId)) &&
-        managers.isNotEmpty) {
-      _managerId = managers.first.id;
+    if (_managerId == null ||
+        !managers.any((user) => user.id == _managerId)) {
+      if (managers.isNotEmpty) _managerId = managers.first.id;
     }
     return Scaffold(
       appBar: AppBar(title: const Text('إضافة صندوق')),
@@ -94,10 +106,11 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
                     children: [
                       TextFormField(
                         controller: _name,
+                        onTap: tapToMoveCursor(_name),
                         decoration: const InputDecoration(
                           labelText: 'اسم الصندوق',
                         ),
-                        validator: AppValidators.requiredText,
+                        validator: _validateName,
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
@@ -114,45 +127,40 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
                             value: 'agent',
                             child: Text('صندوق وكيل'),
                           ),
-                          DropdownMenuItem(
-                            value: 'treasury',
-                            child: Text('الخزنة'),
-                          ),
                         ],
                         onChanged: (value) => setState(() {
                           _type = value ?? _type;
                           _managerId = null;
                         }),
                       ),
-                      if (_type != 'treasury') ...[
-                        const SizedBox(height: 10),
-                        DropdownButtonFormField<String>(
-                          initialValue: _managerId,
-                          decoration: const InputDecoration(
-                            labelText: 'المسؤول',
-                          ),
-                          items: managers
-                              .map(
-                                (user) => DropdownMenuItem(
-                                  value: user.id,
-                                  child: Text(
-                                    '${user.fullName} (@${user.username})',
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) =>
-                              setState(() => _managerId = value),
-                          validator: (_) =>
-                              _managerId == null ? 'اختر مسؤولًا' : null,
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: _managerId,
+                        decoration: const InputDecoration(
+                          labelText: 'المسؤول',
                         ),
-                      ],
+                        items: managers
+                            .map(
+                              (user) => DropdownMenuItem(
+                                value: user.id,
+                                child: Text(
+                                  '${user.fullName} (@${user.username})',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _managerId = value),
+                        validator: (_) =>
+                            _managerId == null ? 'اختر مسؤولًا' : null,
+                      ),
                       const SizedBox(height: 10),
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
                               controller: _city,
+                              onTap: tapToMoveCursor(_city),
                               decoration: const InputDecoration(
                                 labelText: 'المدينة',
                               ),
@@ -163,6 +171,7 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: _country,
+                              onTap: tapToMoveCursor(_country),
                               decoration: const InputDecoration(
                                 labelText: 'الدولة',
                               ),
@@ -177,6 +186,7 @@ class _AddCashboxScreenState extends State<AddCashboxScreen> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        onTap: tapToMoveCursor(_opening),
                         decoration: const InputDecoration(
                           labelText: 'الرصيد الافتتاحي',
                         ),

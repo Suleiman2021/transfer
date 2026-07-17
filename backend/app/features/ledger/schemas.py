@@ -48,6 +48,7 @@ class TrialBalanceRowResponse(BaseModel):
     account_code: str
     account_name: str
     account_type: LedgerAccountType
+    currency: str
     debit: Decimal
     credit: Decimal
     balance: Decimal

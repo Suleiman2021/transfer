@@ -21,6 +21,12 @@ def _normalize_phone(value: str | None) -> str | None:
 
 
 def create_user_by_admin(db: Session, data: UserCreateRequest, creator: User) -> User:
+    if data.role == UserRole.super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin role cannot be assigned via this endpoint",
+        )
+
     if db.query(User).filter(User.username == data.username.strip().lower()).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
@@ -71,7 +77,7 @@ def get_user_by_code(db: Session, code: str) -> User:
     normalized = code.strip()
     for prefix in ("radical-transfer:user:", "user:"):
         if normalized.startswith(prefix):
-            normalized = normalized[len(prefix) :]
+            normalized = normalized[len(prefix):]
             break
 
     user = (
@@ -79,6 +85,14 @@ def get_user_by_code(db: Session, code: str) -> User:
         .filter((cast(User.id, String) == normalized) | (User.username == normalized.lower()))
         .first()
     )
+
+    if not user:
+        user = (
+            db.query(User)
+            .filter(User.full_name.ilike(normalized))
+            .first()
+        )
+
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
@@ -138,10 +152,17 @@ def deactivate_user_by_admin(db: Session, user_id, actor: User) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if user.role == UserRole.admin:
+    if user.role == UserRole.super_admin:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Admin user cannot be deactivated",
+            detail="Super admin cannot be deactivated",
+        )
+
+    # Regular admins can only be deactivated by super_admin
+    if user.role == UserRole.admin and actor.role != UserRole.super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admin can deactivate admin users",
         )
 
     if user.id == actor.id:
@@ -164,10 +185,17 @@ def activate_user_by_admin(db: Session, user_id, actor: User) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if user.role == UserRole.admin:
+    if user.role == UserRole.super_admin:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Admin user cannot be activated from this endpoint",
+            detail="Super admin status cannot be changed from this endpoint",
+        )
+
+    # Regular admins can only be activated by super_admin
+    if user.role == UserRole.admin and actor.role != UserRole.super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admin can activate admin users",
         )
 
     if user.id == actor.id:

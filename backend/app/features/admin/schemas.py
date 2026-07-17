@@ -10,7 +10,8 @@ from app.features.users.schemas import UserResponse
 
 class UserReportSummaryResponse(BaseModel):
     cashboxes_count: int
-    total_balance: Decimal
+    # Per-currency totals across the user's cashboxes (no cross-currency summing).
+    total_balances: dict[str, Decimal] = {}
     transfers_count: int
     completed_count: int
     pending_count: int
@@ -18,7 +19,6 @@ class UserReportSummaryResponse(BaseModel):
     total_amount: Decimal
     total_commission: Decimal
     total_agent_profit: Decimal
-    total_cashout_profit: Decimal
     from_date: date | None
     to_date: date | None
 

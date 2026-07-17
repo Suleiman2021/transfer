@@ -35,7 +35,7 @@ def _build_login_response(user: User) -> LoginResponse:
 def login_non_admin_user(db: Session, username: str, password: str) -> LoginResponse:
     user = _authenticate_user(db, username, password)
 
-    if user.role == UserRole.admin:
+    if user.role in (UserRole.admin, UserRole.super_admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin must use /auth/admin/login endpoint",
@@ -51,7 +51,7 @@ def login_admin_user(
 ) -> LoginResponse:
     user = _authenticate_user(db, username, password)
 
-    if user.role != UserRole.admin:
+    if user.role not in (UserRole.admin, UserRole.super_admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admin can use /auth/admin/login endpoint",

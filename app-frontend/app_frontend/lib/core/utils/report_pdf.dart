@@ -211,7 +211,7 @@ Future<void> printUserReportPdf({
                 rows: [
                   [
                     '${report.summary.cashboxesCount}',
-                    report.summary.totalBalance.toStringAsFixed(2),
+                    report.summary.totalBalanceSyp.toStringAsFixed(2),
                     '${report.summary.transfersCount}',
                     '${report.summary.completedCount}',
                     '${report.summary.pendingCount}',
