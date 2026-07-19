@@ -48,7 +48,9 @@ class OperationsApi {
     int limit = 120,
   }) async {
     final list = await ApiClient.getList(
-      '/transfers?${_dateQuery(fromDate: fromDate, toDate: toDate, limit: limit)}',
+      // الشرطة النهائية ضرورية: بدونها يرد الخادم بـ 307 وتسقط ترويسة
+      // Authorization أثناء إعادة التوجيه فيفشل الطلب بـ 401.
+      '/transfers/?${_dateQuery(fromDate: fromDate, toDate: toDate, limit: limit)}',
       token: token,
     );
     return list

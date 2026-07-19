@@ -277,6 +277,8 @@ class ApiClient {
           'هذا الحساب إداري. استخدم تسجيل دخول الأدمن.',
       'Only admin can use /auth/admin/login endpoint':
           'هذا الحساب ليس أدمن. استخدم تطبيق العمليات.',
+      'Not authenticated':
+          'الطلب وصل بدون بيانات الجلسة. يرجى تسجيل الدخول مجددًا.',
       'Invalid or expired token':
           'انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجددًا.',
       'Invalid token payload':
