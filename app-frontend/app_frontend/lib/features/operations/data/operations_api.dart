@@ -5,14 +5,16 @@ import '../../../core/network/api_client.dart';
 
 class OperationsApi {
   Future<List<CashboxModel>> fetchCashboxes(String token) async {
-    final list = await ApiClient.getList('/cashboxes', token: token);
+    // الشرطة النهائية ضرورية (المسار معرّف كـ "/" تحت prefix): بدونها يرد
+    // الخادم بـ 307 وتسقط ترويسة Authorization فيفشل الطلب بـ 401.
+    final list = await ApiClient.getList('/cashboxes/', token: token);
     return list
         .map((e) => CashboxModel.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<List<CommissionRuleModel>> fetchCommissions(String token) async {
-    final list = await ApiClient.getList('/commissions', token: token);
+    final list = await ApiClient.getList('/commissions/', token: token);
     return list
         .map((e) => CommissionRuleModel.fromJson(e as Map<String, dynamic>))
         .toList();
